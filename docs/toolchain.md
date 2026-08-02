@@ -66,7 +66,7 @@ adb shell getprop ro.build.version.sdk
 adb shell getprop ro.product.cpu.abi
 ```
 
-The launcher reuses an online emulator when present. Otherwise it starts `AffectLive_API_35` without saving a snapshot, waits up to 180 seconds for Android to finish booting, and writes startup logs under the ignored `captures\` directory.
+The launcher reuses an online emulator when present. Otherwise it starts `AffectLive_API_35` without saving a snapshot, waits up to 180 seconds for Android to finish booting, and writes startup logs under the ignored `captures\` directory. A failed launch stops only the emulator processes started by that invocation, and aborts early if combined startup logs exceed 8 MiB.
 
 ## Offline model assets
 

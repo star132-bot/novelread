@@ -15,8 +15,9 @@ $emulatorExecutable = Join-Path $androidSdkRoot 'emulator\emulator.exe'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $logDirectory = Join-Path $repositoryRoot 'captures'
 $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$emulatorLogPath = Join-Path $logDirectory "emulator-$timestamp.log"
-$emulatorOutputPath = Join-Path $logDirectory "emulator-$timestamp.out.log"
+$emulatorLogPath = Join-Path $logDirectory "emulator-$timestamp.out.log"
+$emulatorErrorLogPath = Join-Path $logDirectory "emulator-$timestamp.err.log"
+$maxCombinedLogBytes = 8MB
 
 if (-not (Test-Path -LiteralPath $adbExecutable -PathType Leaf)) {
     throw "adb was not found at '$adbExecutable'."
@@ -27,9 +28,6 @@ if (-not (Test-Path -LiteralPath $emulatorExecutable -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath $androidAvdHome -PathType Container)) {
     throw "Android AVD directory was not found at '$androidAvdHome'."
 }
-
-New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
-New-Item -ItemType File -Path $emulatorLogPath -Force | Out-Null
 
 $env:ANDROID_SDK_ROOT = $androidSdkRoot
 $env:ANDROID_AVD_HOME = $androidAvdHome
@@ -64,17 +62,49 @@ function Get-BootCompletion {
     return (($bootOutput | Select-Object -First 1).ToString()).Trim()
 }
 
+function Stop-StartedEmulator {
+    if ($null -eq $emulatorStartedAt) {
+        return
+    }
+
+    $startedProcesses = Get-Process -Name 'emulator', 'qemu-system-x86_64' -ErrorAction SilentlyContinue |
+        Where-Object {
+            $baselineEmulatorProcessIds -notcontains $_.Id -and
+            $_.StartTime -ge $emulatorStartedAt
+        }
+    foreach ($process in $startedProcesses) {
+        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Get-CombinedLogSize {
+    $total = 0L
+    foreach ($path in @($emulatorLogPath, $emulatorErrorLogPath)) {
+        if (Test-Path -LiteralPath $path -PathType Leaf) {
+            $total += (Get-Item -LiteralPath $path).Length
+        }
+    }
+    return $total
+}
+
 $emulatorProcess = $null
+$emulatorStartedAt = $null
+$baselineEmulatorProcessIds = @(Get-Process -Name 'emulator', 'qemu-system-x86_64' -ErrorAction SilentlyContinue |
+    ForEach-Object { $_.Id })
 $serial = Get-OnlineEmulatorSerial
 if ($null -eq $serial) {
     Write-Host "Starting Android AVD '$avdName'..."
     try {
+        New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
+        New-Item -ItemType File -Path $emulatorLogPath -Force | Out-Null
+        New-Item -ItemType File -Path $emulatorErrorLogPath -Force | Out-Null
+        $emulatorStartedAt = Get-Date
         $emulatorProcess = Start-Process `
             -FilePath $emulatorExecutable `
             -ArgumentList @('-avd', $avdName, '-no-snapshot-save') `
             -WindowStyle Hidden `
-            -RedirectStandardOutput $emulatorOutputPath `
-            -RedirectStandardError $emulatorLogPath `
+            -RedirectStandardOutput $emulatorLogPath `
+            -RedirectStandardError $emulatorErrorLogPath `
             -PassThru
     }
     catch {
@@ -97,7 +127,12 @@ while ((Get-Date) -lt $deadline) {
     if ($null -ne $emulatorProcess) {
         $emulatorProcess.Refresh()
         if ($emulatorProcess.HasExited) {
-            throw "Android AVD '$avdName' exited with code $($emulatorProcess.ExitCode) before boot completed. Emulator log: $emulatorLogPath"
+            throw "Android AVD '$avdName' exited with code $($emulatorProcess.ExitCode) before boot completed. Emulator logs: $emulatorLogPath; $emulatorErrorLogPath"
+        }
+
+        if ((Get-CombinedLogSize) -gt $maxCombinedLogBytes) {
+            Stop-StartedEmulator
+            throw "Android AVD '$avdName' exceeded the 8 MiB startup log limit. Emulator logs: $emulatorLogPath; $emulatorErrorLogPath"
         }
     }
 
@@ -105,4 +140,5 @@ while ((Get-Date) -lt $deadline) {
     Start-Sleep -Milliseconds ([Math]::Min(2000, $remainingMilliseconds))
 }
 
-throw "Android AVD '$avdName' did not report sys.boot_completed=1 within $BootTimeoutSeconds seconds. Emulator log: $emulatorLogPath"
+Stop-StartedEmulator
+throw "Android AVD '$avdName' did not report sys.boot_completed=1 within $BootTimeoutSeconds seconds. Emulator logs: $emulatorLogPath; $emulatorErrorLogPath"

@@ -1,0 +1,23 @@
+{
+    "schemaVersion":  1,
+    "assets":  [
+                   {
+                       "name":  "sherpa-onnx-1.13.4.aar",
+                       "url":  "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.4/sherpa-onnx-1.13.4.aar",
+                       "size":  48847529,
+                       "sha256":  "03f9c4df965f21c71269365a7951a7f23b5696fddd093fa318c80d65550ab780"
+                   },
+                   {
+                       "name":  "sherpa-onnx-zipvoice-distill-int8-zh-en-emilia.tar.bz2",
+                       "url":  "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-zipvoice-distill-int8-zh-en-emilia.tar.bz2",
+                       "size":  109162785,
+                       "sha256":  "77219c8b40f4ee8d73a7f902305ff6c1128ef9b54461c41b4ca6ed890b6c2803"
+                   },
+                   {
+                       "name":  "vocos_24khz.onnx",
+                       "url":  "https://github.com/k2-fsa/sherpa-onnx/releases/download/vocoder-models/vocos_24khz.onnx",
+                       "size":  54157409,
+                       "sha256":  "bcb3b970e384161c4d634f0bb9e999ff1c471b34c9bc0b1049a5014065ed3cc0"
+                   }
+               ]
+}

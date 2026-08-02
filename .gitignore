@@ -2,8 +2,14 @@
 .gradle/
 .idea/
 local.properties
+.local-assets/
+.local-tools/
+app/libs/*.aar
+app/build/
+build/
 **/build/
 *.iml
+*.hprof
 
 # Local Android tooling
 .android-sdk/

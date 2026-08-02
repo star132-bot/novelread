@@ -12,6 +12,7 @@ local.properties
 # Local design and verification artifacts
 .superpowers/
 .playwright-cli/
+.worktrees/
 captures/
 output/
 

@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MKread 设计预览</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #252a28;
+      --muted: #626965;
+      --line: #d9dcd9;
+      --paper: #f4f5f2;
+      --white: #ffffff;
+      --green: #246c5e;
+      --rust: #b85b3f;
+      --violet: #6c618d;
+      --gold: #ae7b27;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+    main { width: min(1120px, calc(100% - 32px)); margin: 0 auto; padding: 40px 0 64px; }
+    h1 { margin: 0; font-size: clamp(30px, 5vw, 48px); }
+    h2 { margin: 0 0 16px; font-size: 23px; }
+    h3 { margin: 0 0 12px; font-size: 16px; }
+    p { line-height: 1.65; }
+    .lead { max-width: 760px; color: var(--muted); margin: 10px 0 28px; }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 10px;
+      border: 1px solid #b9d2ca;
+      border-radius: 6px;
+      background: #eaf4f0;
+      color: #254a41;
+      font-size: 13px;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+    section { margin-top: 38px; }
+    .stack { display: grid; gap: 12px; }
+    .band {
+      border: 1px solid var(--line);
+      border-left: 5px solid var(--green);
+      border-radius: 8px;
+      background: var(--white);
+      padding: 16px;
+    }
+    .band.runtime { border-left-color: var(--rust); }
+    .band.storage { border-left-color: var(--violet); }
+    .nodes { display: grid; grid-template-columns: repeat(auto-fit, minmax(185px, 1fr)); gap: 10px; }
+    .node {
+      min-height: 84px;
+      border: 1px solid #e1e3e0;
+      border-radius: 6px;
+      background: #f8f9f7;
+      padding: 12px;
+    }
+    .node strong, .step strong { display: block; margin-bottom: 6px; }
+    .node span, .step span { color: var(--muted); font-size: 13px; line-height: 1.5; }
+    .down { text-align: center; color: #8b918e; font-size: 22px; line-height: 1; }
+    .lane { border-top: 1px solid var(--line); padding: 18px 0 2px; }
+    .lane-title { display: flex; align-items: center; gap: 10px; }
+    .number {
+      min-width: 28px;
+      height: 28px;
+      border-radius: 5px;
+      background: var(--green);
+      color: var(--white);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+    }
+    .steps { display: flex; align-items: stretch; gap: 8px; overflow-x: auto; padding: 2px 0 8px; }
+    .step {
+      min-width: 150px;
+      flex: 1;
+      border: 1px solid #dfe2de;
+      border-radius: 6px;
+      background: var(--white);
+      padding: 12px;
+    }
+    .arrow { align-self: center; color: #8b918e; font-size: 18px; }
+    .package {
+      border: 1px solid #dfcfb7;
+      border-left: 5px solid var(--gold);
+      border-radius: 8px;
+      background: #fffaf2;
+      padding: 16px;
+    }
+    .package-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+    .package-item { border-top: 2px solid #dec69e; padding-top: 10px; font-size: 13px; line-height: 1.55; }
+    .rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(225px, 1fr)); gap: 12px; }
+    .rule { border-left: 4px solid var(--violet); background: #f1eff6; border-radius: 6px; padding: 13px 14px; }
+    .rule strong { display: block; margin-bottom: 5px; }
+    .rule span { color: #5e5969; font-size: 13px; line-height: 1.5; }
+    .note {
+      margin-top: 28px;
+      border-radius: 8px;
+      background: #26302d;
+      color: #f5f7f6;
+      padding: 16px 18px;
+      line-height: 1.65;
+    }
+    @media (max-width: 680px) {
+      main { width: min(100% - 22px, 1120px); padding-top: 24px; }
+      .steps { flex-direction: column; }
+      .step { min-width: 0; }
+      .arrow { transform: rotate(90deg); text-align: center; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="status"><span class="dot"></span>离线优先 · Android 10+ · TXT / EPUB</div>
+    <h1>MKread 设计预览</h1>
+    <p class="lead">小说导入、分页、编辑、情感分析、音色推理和后台播放全部在设备本地完成。首版采用原生 Android、sherpa-onnx 与 ZipVoice-Distill INT8。</p>
+
+    <section>
+      <h2>总体架构</h2>
+      <div class="stack">
+        <div class="band">
+          <h3>界面与用户操作</h3>
+          <div class="nodes">
+            <div class="node"><strong>书架 / 文件管理</strong><span>导入、搜索、排序、删除、阅读进度和最近阅读。</span></div>
+            <div class="node"><strong>阅读 / 编辑</strong><span>自动分页、文字选择与复制、正文编辑、朗读句高亮。</span></div>
+            <div class="node"><strong>播放器 / 设置</strong><span>音色、速度、情感开关、定时停止、日间与夜间模式。</span></div>
+          </div>
+        </div>
+        <div class="down">↓</div>
+        <div class="band">
+          <h3>应用核心</h3>
+          <div class="nodes">
+            <div class="node"><strong>导入与解析</strong><span>编码识别、EPUB 安全解包、章节提取和正文标准化。</span></div>
+            <div class="node"><strong>分页与位置映射</strong><span>在字符偏移、页面、章节和朗读语句之间稳定定位。</span></div>
+            <div class="node"><strong>朗读编排</strong><span>断句、情绪选择、语音任务队列、预生成与失败恢复。</span></div>
+            <div class="node"><strong>音色包管理</strong><span>验证、安装、启用和卸载 .mkvoice 音色包。</span></div>
+          </div>
+        </div>
+        <div class="down">↓</div>
+        <div class="band runtime">
+          <h3>设备运行时</h3>
+          <div class="nodes">
+            <div class="node"><strong>sherpa-onnx + ZipVoice</strong><span>中英文 INT8 离线合成，依据情绪选择参考风格。</span></div>
+            <div class="node"><strong>Media3 播放服务</strong><span>后台播放、锁屏通知、耳机控制和音频焦点。</span></div>
+            <div class="node"><strong>后台任务</strong><span>小说解析、分页索引、缓存清理和模型完整性检查。</span></div>
+          </div>
+        </div>
+        <div class="down">↓</div>
+        <div class="band storage">
+          <h3>本地数据</h3>
+          <div class="nodes">
+            <div class="node"><strong>Room 数据库</strong><span>书籍、章节、进度、设置、编辑版本和音色元数据。</span></div>
+            <div class="node"><strong>应用私有文件</strong><span>小说副本、封面、模型、音色参考和分页索引。</span></div>
+            <div class="node"><strong>有界音频缓存</strong><span>缓存当前与后续语句，按容量和最近使用时间清理。</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>核心数据流</h2>
+
+      <div class="lane">
+        <h3 class="lane-title"><span class="number">01</span>导入 TXT / EPUB</h3>
+        <div class="steps">
+          <div class="step"><strong>系统文件选择器</strong><span>选择文件，不申请宽泛存储权限。</span></div><div class="arrow">→</div>
+          <div class="step"><strong>安全校验</strong><span>检查格式、大小、编码和 EPUB 压缩路径。</span></div><div class="arrow">→</div>
+          <div class="step"><strong>复制与标准化</strong><span>写入应用私有目录，原文件保持不变。</span></div><div class="arrow">→</div>
+          <div class="step"><strong>解析与索引</strong><span>提取章节、封面，并在后台建立索引。</span></div>
+        </div>
+      </div>
+
+      <div class="lane">
+        <h3 class="lane-title"><span class="number">02</span>分页阅读</h3>
+        <div class="steps">
+          <div class="step"><strong>按需读取章节</strong><span>不把整本大型小说放进界面内存。</span></div><div class="arrow">→</div>
+          <div class="step"><strong>计算字符区间</strong><span>依据屏幕、字体、字号和行距分页。</span></div><div class="arrow">→</div>
+          <div class="step"><strong>渲染与选择</strong><span>翻页、复制和当前朗读句高亮。</span></div><div class="arrow">→</div>
+          <div class="step"><strong>保存进度</strong><span>记录章节与字符偏移，不依赖易失效页码。</span></div>
+        </div>
+      </div>
+
+      <div class="lane">
+        <h3 class="lane-title"><span class="number">03</span>离线情感朗读</h3>
+        <div class="steps">
+          <div class="step"><strong>上下文断句</strong><span>结合前后句识别旁白、对白和停顿。</span></div><div class="arrow">→</div>
+          <div class="step"><strong>情绪编排</strong><span>选择中性、愉悦、悲伤、愤怒或紧张。</span></div><div class="arrow">→</div>
+          <div class="step"><strong>ZipVoice 生成</strong><span>后台提前生成后续 2 至 3 句音频。</span></div><div class="arrow">→</div>
+          <div class="step"><strong>Media3 播放</strong><span>连续播放、系统控制和句子高亮。</span></div>
+        </div>
+      </div>
+
+      <div class="lane">
+        <h3 class="lane-title"><span class="number">04</span>正文编辑</h3>
+        <div class="steps">
+          <div class="step"><strong>编辑应用内副本</strong><span>支持撤销、取消与明确保存。</span></div><div class="arrow">→</div>
+          <div class="step"><strong>保存新版本</strong><span>事务写入，保留短期撤销记录。</span></div><div class="arrow">→</div>
+          <div class="step"><strong>局部重建缓存</strong><span>只清除受影响章节的分页与语音缓存。</span></div><div class="arrow">→</div>
+          <div class="step"><strong>恢复字符锚点</strong><span>回到编辑附近，原始文件不被覆盖。</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>.mkvoice 音色包</h2>
+      <div class="package">
+        <div class="package-grid">
+          <div class="package-item"><strong>manifest.json</strong><br>格式版本、音色 ID、名称、语言和引擎兼容版本。</div>
+          <div class="package-item"><strong>references/</strong><br>中性与可选情绪参考 WAV，以及每段录音的准确文字。</div>
+          <div class="package-item"><strong>checksums.json</strong><br>文件哈希、大小限制和完整性验证。</div>
+          <div class="package-item"><strong>manifest.json 授权字段</strong><br>内嵌音色来源与授权声明；无声明包不允许安装。</div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>关键回退规则</h2>
+      <div class="rules">
+        <div class="rule"><strong>情感关闭</strong><span>固定使用中性参考风格和用户设置的朗读速度。</span></div>
+        <div class="rule"><strong>情感样本缺失</strong><span>回退到中性风格并微调停顿，不伪造不存在的音色样本。</span></div>
+        <div class="rule"><strong>播放被打断</strong><span>来电或其他应用抢占音频时暂停，之后由用户主动继续。</span></div>
+        <div class="rule"><strong>缓存受限</strong><span>按容量上限清理；语音缓存损坏时可重新生成，不影响正文。</span></div>
+      </div>
+    </section>
+
+    <div class="note"><strong>设计确认点：</strong>阅读进度始终使用“章节 + 字符偏移”；情感朗读关闭时只使用中性音色；正文编辑只影响应用内副本；所有语音处理保持离线。</div>
+  </main>
+</body>
+</html>

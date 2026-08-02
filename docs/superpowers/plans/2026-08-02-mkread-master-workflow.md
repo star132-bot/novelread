@@ -6,7 +6,7 @@
 
 **Architecture:** Build one native Kotlin/Compose `:app` module with feature-oriented packages and explicit repository, speech, and playback interfaces. Persist structured state in Room and DataStore, store imported content and generated audio in app-private files, run ZipVoice through sherpa-onnx, and host Media3 in a `MediaSessionService`.
 
-**Tech Stack:** Kotlin 2.0.21, Android Gradle Plugin 8.6.0, Gradle 8.8, JDK 17, Jetpack Compose, Room 2.6.1, DataStore 1.1.1, Media3 1.5.1, WorkManager 2.10.0, Jsoup 1.18.3, kotlinx.serialization 1.7.3, sherpa-onnx 1.13.2, ZipVoice-Distill INT8, JUnit 4, AndroidX Test, Espresso.
+**Tech Stack:** Kotlin 2.0.21, Android Gradle Plugin 8.6.0, Gradle 8.8, JDK 17, Jetpack Compose, Room 2.6.1, DataStore 1.1.1, Media3 1.5.1, WorkManager 2.10.0, Jsoup 1.18.3, kotlinx.serialization 1.7.3, sherpa-onnx 1.13.4, ZipVoice-Distill INT8, JUnit 4, AndroidX Test, Espresso.
 
 ---
 
@@ -66,7 +66,7 @@ No phase may begin while the previous phase gate is red. A failing gate is fixed
 | 3 | `2026-08-02-mkread-phase-3-reader-pagination-editing.md` | Page offsets are stable, selection/copy/edit/save/undo work, and semantic position survives typography and process recreation. |
 | 4 | `2026-08-02-mkread-phase-4-background-playback.md` | Sentence queue, cache, highlight, notification, audio focus, headset controls, sleep timer, and service restoration pass on the emulator. |
 | 5 | `2026-08-02-mkread-phase-5-voices-emotion-settings.md` | `.mkvoice` validation is atomic, voice preview/selection/deletion work, emotion toggle is repeatable, and all user settings persist. |
-| 6 | `2026-08-02-mkread-phase-6-acceptance-hardening.md` | Airplane-mode E2E, malformed-input suite, 20 MB/100-book targets, 30-minute playback, accessibility checks, and ARM64 performance report are complete. |
+| 6 | `2026-08-02-mkread-phase-6-acceptance-hardening.md` | Airplane-mode E2E, malformed-input suite, 20 MB/100-book targets, 60-minute playback, accessibility checks, and ARM64 performance report are complete. |
 
 ## Requirement Coverage Map
 
@@ -191,7 +191,7 @@ The package dump must show no requested `android.permission.INTERNET`. All Gradl
 - [ ] `testDebugUnitTest`, `lintDebug`, `assembleDebug`, and `connectedDebugAndroidTest` pass from a clean checkout plus locally fetched licensed assets.
 - [ ] The emulator acceptance script saves its report under `docs/test-evidence/emulator-api35/`.
 - [ ] An ARM64 device report records synthesis real-time factor, peak memory, thermal state, and battery delta under `docs/test-evidence/arm64/`.
-- [ ] A 30-minute background run has zero silently skipped sentence ids.
+- [ ] A 60-minute background run has zero silently skipped sentence ids.
 - [ ] TXT and EPUB originals have identical SHA-256 values before and after import, edit, and deletion from MKread.
 - [ ] Airplane-mode launch, import, reading, synthesis, background playback, restart restoration, and voice import all pass.
 - [ ] Android package inspection confirms no Internet permission and only the documented foreground media-playback permissions.
@@ -208,7 +208,7 @@ Any one of the following keeps the build at internal-development status:
 - ARM64 synthesis cannot sustain the chosen prefetch policy without repeated boundary stalls.
 - A crash, corruption, data-loss, path-traversal, or source-file modification defect remains open.
 - Offline acceptance requires Internet access at any point after APK installation.
-- The 30-minute narration run skips or reorders a sentence.
+- The 60-minute narration run skips or reorders a sentence.
 
 ## Completion Handoff
 

@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MKread 界面与异常处理预览</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #252a28;
+      --muted: #686d6a;
+      --line: #d9dcd9;
+      --paper: #f3f4f1;
+      --white: #ffffff;
+      --green: #236c5e;
+      --green-soft: #dcece6;
+      --rust: #b85c41;
+      --violet: #675e8b;
+      --night: #202421;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+    main { width: min(1240px, calc(100% - 32px)); margin: 0 auto; padding: 36px 0 64px; }
+    h1 { margin: 0; font-size: 40px; }
+    h2 { margin: 0 0 14px; font-size: 23px; }
+    h3 { margin: 0; font-size: 15px; }
+    p { line-height: 1.6; }
+    .lead { max-width: 780px; margin: 10px 0 28px; color: var(--muted); }
+    .screen-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 22px; align-items: start; }
+    .screen-label { margin: 0 0 9px; color: var(--muted); font-size: 13px; }
+    .phone {
+      width: min(100%, 294px);
+      aspect-ratio: 9 / 19;
+      margin: 0 auto;
+      border: 8px solid #252725;
+      border-radius: 30px;
+      overflow: hidden;
+      background: #f9faf8;
+      box-shadow: 0 12px 30px rgba(37, 42, 40, .14);
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+    .statusbar { height: 27px; padding: 7px 13px 0; display: flex; justify-content: space-between; font-size: 10px; color: #515653; flex: 0 0 auto; }
+    .appbar { min-height: 48px; padding: 0 13px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #e1e3e0; flex: 0 0 auto; }
+    .appbar-title { font-size: 17px; font-weight: 700; }
+    .actions { display: flex; gap: 7px; }
+    .icon-button { width: 31px; height: 31px; border: 0; border-radius: 6px; background: transparent; color: #343936; font-size: 17px; display: grid; place-items: center; }
+    .content { flex: 1; min-height: 0; overflow: hidden; }
+    .shelf-tools { padding: 10px 13px 6px; display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--muted); }
+    .book-list { padding: 0 13px; display: grid; gap: 9px; }
+    .book-row { display: grid; grid-template-columns: 46px 1fr 24px; gap: 10px; align-items: center; min-height: 72px; border-bottom: 1px solid #e2e4e1; padding: 5px 0 9px; }
+    .cover { width: 46px; aspect-ratio: 3 / 4; border-radius: 4px; color: #fff; padding: 6px 5px; display: flex; align-items: end; font-family: serif; font-size: 10px; line-height: 1.25; }
+    .cover.one { background: #46645c; }
+    .cover.two { background: #a85b45; }
+    .cover.three { background: #645d82; }
+    .book-title { font-weight: 700; font-size: 13px; margin-bottom: 5px; }
+    .book-meta { color: var(--muted); font-size: 10px; line-height: 1.45; }
+    .progress { height: 3px; margin-top: 6px; background: #dce1de; border-radius: 2px; overflow: hidden; }
+    .progress span { display: block; height: 100%; background: var(--green); }
+    .fab { position: absolute; right: 14px; bottom: 61px; width: 45px; height: 45px; border-radius: 50%; border: 0; background: var(--green); color: #fff; font-size: 23px; box-shadow: 0 5px 14px rgba(35, 108, 94, .28); }
+    .bottom-nav { min-height: 51px; border-top: 1px solid #dfe2df; background: #fff; display: grid; grid-template-columns: repeat(3, 1fr); flex: 0 0 auto; }
+    .nav-item { display: grid; place-items: center; align-content: center; gap: 2px; color: #747a76; font-size: 9px; }
+    .nav-item strong { font-size: 16px; font-weight: 500; line-height: 1; }
+    .nav-item.active { color: var(--green); }
+    .reader-phone { background: #f3f0e7; }
+    .reader-appbar { border-bottom-color: #ddd8ca; }
+    .reader-title { font-size: 12px; font-weight: 700; text-align: center; max-width: 150px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .page { flex: 1; min-height: 0; overflow: hidden; padding: 18px 20px 8px; font-family: "SimSun", serif; font-size: 13px; line-height: 1.95; color: #2e302d; }
+    .page p { margin: 0 0 12px; line-height: inherit; }
+    mark { background: #d6e6df; color: inherit; padding: 1px 2px; }
+    .page-count { padding: 0 18px 7px; display: flex; justify-content: space-between; color: #75736c; font-size: 9px; }
+    .mini-player { min-height: 58px; padding: 7px 12px; background: var(--night); color: #fff; display: grid; grid-template-columns: 32px 1fr 38px 32px; gap: 5px; align-items: center; }
+    .play-main { width: 38px; height: 38px; border-radius: 50%; background: #fff; color: #252a28; display: grid; place-items: center; font-size: 14px; }
+    .track-name { font-size: 10px; color: #d8ddda; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .track-status { margin-top: 3px; font-size: 9px; color: #9fb3ab; }
+    .sheet-backdrop { position: absolute; inset: 27px 0 0; background: rgba(27, 30, 28, .36); }
+    .sheet { position: absolute; left: 0; right: 0; bottom: 0; min-height: 360px; background: #fff; border-radius: 16px 16px 0 0; padding: 10px 15px 18px; }
+    .handle { width: 34px; height: 4px; margin: 0 auto 14px; border-radius: 2px; background: #c9cecb; }
+    .sheet-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 13px; }
+    .field { padding: 10px 0; border-top: 1px solid #e2e4e1; }
+    .field-row { display: flex; align-items: center; justify-content: space-between; gap: 9px; font-size: 12px; }
+    .field-note { color: var(--muted); font-size: 9px; margin-top: 4px; }
+    .segmented { display: flex; background: #e8ebe8; border-radius: 6px; padding: 3px; gap: 2px; }
+    .segmented span { min-width: 54px; padding: 5px 7px; text-align: center; border-radius: 4px; font-size: 9px; }
+    .segmented .selected { background: #fff; color: var(--green); font-weight: 700; }
+    .switch { width: 37px; height: 21px; border-radius: 11px; background: var(--green); padding: 3px; display: flex; justify-content: flex-end; }
+    .switch span { width: 15px; height: 15px; border-radius: 50%; background: #fff; }
+    .slider { height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--green) 0 42%, #d9ddda 42% 100%); position: relative; margin: 11px 5px 3px; }
+    .slider::after { content: ""; position: absolute; left: 42%; top: 50%; width: 13px; height: 13px; border-radius: 50%; background: var(--green); transform: translate(-50%, -50%); }
+    .voice-list { padding: 11px 13px; display: grid; gap: 8px; }
+    .voice-row { border: 1px solid #dfe2df; border-radius: 7px; padding: 10px; display: grid; grid-template-columns: 38px 1fr 27px; align-items: center; gap: 10px; background: #fff; }
+    .voice-row.active { border-color: var(--green); background: #edf6f2; }
+    .voice-badge { width: 38px; height: 38px; border-radius: 50%; background: #dce8e3; color: var(--green); display: grid; place-items: center; font-size: 17px; }
+    .voice-row:nth-child(2) .voice-badge { background: #eee2dc; color: var(--rust); }
+    .voice-name { font-size: 12px; font-weight: 700; }
+    .voice-meta { color: var(--muted); font-size: 9px; margin-top: 3px; line-height: 1.35; }
+    .radio { width: 16px; height: 16px; border: 2px solid #aeb5b1; border-radius: 50%; }
+    .active .radio { border: 5px solid var(--green); }
+    .import-bar { margin: 2px 13px 10px; min-height: 38px; border: 1px dashed #aeb8b3; border-radius: 7px; display: grid; place-items: center; color: var(--green); font-size: 11px; }
+    .screen-caption { width: min(100%, 294px); margin: 12px auto 0; }
+    .screen-caption strong { display: block; font-size: 14px; }
+    .screen-caption span { color: var(--muted); font-size: 12px; line-height: 1.5; }
+    section { margin-top: 40px; }
+    .state-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(245px, 1fr)); gap: 12px; }
+    .state { min-height: 118px; border: 1px solid var(--line); border-left: 5px solid var(--rust); border-radius: 8px; background: #fff; padding: 14px; }
+    .state:nth-child(2n) { border-left-color: var(--violet); }
+    .state strong { display: block; margin-bottom: 7px; }
+    .state p { margin: 0; color: var(--muted); font-size: 13px; }
+    .principles { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+    .principle { border-top: 3px solid var(--green); padding: 12px 2px 0; }
+    .principle strong { display: block; margin-bottom: 5px; }
+    .principle span { color: var(--muted); font-size: 13px; line-height: 1.55; }
+    .confirm { margin-top: 30px; background: #26302d; color: #f4f7f5; border-radius: 8px; padding: 16px 18px; line-height: 1.65; }
+    @media (max-width: 680px) {
+      main { width: min(100% - 22px, 1240px); padding-top: 24px; }
+      h1 { font-size: 31px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>MKread 界面与行为</h1>
+    <p class="lead">首版以高频操作为中心：打开书架即可继续阅读，阅读页一键开始朗读，详细参数收进底部控制面板。视觉保持安静、清晰，夜间阅读不使用刺眼纯黑。</p>
+
+    <section class="screen-grid">
+      <div>
+        <p class="screen-label">01 · 启动页</p>
+        <div class="phone">
+          <div class="statusbar"><span>21:36</span><span>76%</span></div>
+          <div class="appbar"><span class="appbar-title">MKread</span><div class="actions"><button class="icon-button" aria-label="搜索">⌕</button><button class="icon-button" aria-label="排序">⇅</button></div></div>
+          <div class="content">
+            <div class="shelf-tools"><strong>我的书架 · 3</strong><span>最近阅读</span></div>
+            <div class="book-list">
+              <div class="book-row"><div class="cover one">雾城来信</div><div><div class="book-title">雾城来信</div><div class="book-meta">第十二章 · 42%</div><div class="progress"><span style="width:42%"></span></div></div><span>⋮</span></div>
+              <div class="book-row"><div class="cover two">长夜行</div><div><div class="book-title">长夜行</div><div class="book-meta">第三章 · 18%</div><div class="progress"><span style="width:18%"></span></div></div><span>⋮</span></div>
+              <div class="book-row"><div class="cover three">山海旧闻</div><div><div class="book-title">山海旧闻</div><div class="book-meta">尚未开始</div><div class="progress"><span style="width:0%"></span></div></div><span>⋮</span></div>
+            </div>
+          </div>
+          <button class="fab" aria-label="导入小说">＋</button>
+          <div class="bottom-nav"><div class="nav-item active"><strong>▤</strong><span>书架</span></div><div class="nav-item"><strong>◉</strong><span>音色</span></div><div class="nav-item"><strong>⚙</strong><span>设置</span></div></div>
+        </div>
+        <div class="screen-caption"><strong>书架</strong><span>列表便于扫描标题与进度；右下角加号只负责导入，更多文件操作位于每本书的菜单。</span></div>
+      </div>
+
+      <div>
+        <p class="screen-label">02 · 专注阅读</p>
+        <div class="phone reader-phone">
+          <div class="statusbar"><span>21:36</span><span>76%</span></div>
+          <div class="appbar reader-appbar"><button class="icon-button" aria-label="返回书架">‹</button><span class="reader-title">第一章 · 初见</span><button class="icon-button" aria-label="阅读菜单">⋮</button></div>
+          <div class="page">
+            <p>夜色沉下来时，远处的灯火刚刚亮起。</p>
+            <p><mark>“你终于来了。”她轻声说道，语气里带着一点释然。</mark></p>
+            <p>风掠过窗边，纸页发出细微的声响。站在门外的人没有回答，只是慢慢放下了手中的伞。</p>
+          </div>
+          <div class="page-count"><span>第 12 / 286 页</span><span>本章 42%</span></div>
+          <div class="mini-player"><span>↶</span><div><div class="track-name">墨岚 · 情感朗读</div><div class="track-status">正在朗读当前高亮句</div></div><div class="play-main">Ⅱ</div><span>1.0×</span></div>
+        </div>
+        <div class="screen-caption"><strong>阅读页</strong><span>点击左右区域翻页，点击中间显示或隐藏工具栏；长按文字使用系统复制菜单。</span></div>
+      </div>
+
+      <div>
+        <p class="screen-label">03 · 朗读控制</p>
+        <div class="phone reader-phone">
+          <div class="statusbar"><span>21:36</span><span>76%</span></div>
+          <div class="page"><p>夜色沉下来时，远处的灯火刚刚亮起。</p><p>“你终于来了。”她轻声说道。</p></div>
+          <div class="sheet-backdrop"></div>
+          <div class="sheet">
+            <div class="handle"></div>
+            <div class="sheet-head"><h3>朗读设置</h3><span>完成</span></div>
+            <div class="field"><div class="field-row"><span>音色</span><strong>墨岚 ›</strong></div><div class="field-note">内置中文音色</div></div>
+            <div class="field"><div class="field-row"><span>朗读速度</span><strong>1.0×</strong></div><div class="slider"></div></div>
+            <div class="field"><div class="field-row"><span>情感朗读</span><div class="switch"><span></span></div></div><div class="field-note">根据上下文自动改变语气、停顿和情绪</div></div>
+            <div class="field"><div class="field-row"><span>推理模式</span><div class="segmented"><span>流畅</span><span class="selected">高质量</span></div></div></div>
+            <div class="field"><div class="field-row"><span>定时停止</span><strong>30 分钟 ›</strong></div></div>
+          </div>
+        </div>
+        <div class="screen-caption"><strong>底部控制面板</strong><span>高频播放控制留在阅读页；音色、速度、情感与定时停止集中在一个面板中。</span></div>
+      </div>
+
+      <div>
+        <p class="screen-label">04 · 音色管理</p>
+        <div class="phone">
+          <div class="statusbar"><span>21:36</span><span>76%</span></div>
+          <div class="appbar"><span class="appbar-title">音色库</span><button class="icon-button" aria-label="音色库帮助">ⓘ</button></div>
+          <div class="content">
+            <div class="voice-list">
+              <div class="voice-row active"><div class="voice-badge">♪</div><div><div class="voice-name">墨岚</div><div class="voice-meta">内置 · 中文 · 5 种情绪风格</div></div><div class="radio"></div></div>
+              <div class="voice-row"><div class="voice-badge">♪</div><div><div class="voice-name">清禾</div><div class="voice-meta">已导入 · 中文 · 仅中性风格</div></div><div class="radio"></div></div>
+            </div>
+            <div class="import-bar">＋ 导入 .mkvoice 音色包</div>
+          </div>
+          <div class="bottom-nav"><div class="nav-item"><strong>▤</strong><span>书架</span></div><div class="nav-item active"><strong>◉</strong><span>音色</span></div><div class="nav-item"><strong>⚙</strong><span>设置</span></div></div>
+        </div>
+        <div class="screen-caption"><strong>音色库</strong><span>清楚标注语言和可用情绪；不兼容、损坏或缺少授权声明的包不会进入列表。</span></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>关键异常处理</h2>
+      <div class="state-grid">
+        <div class="state"><strong>小说无法导入</strong><p>在加入书架前完成格式、大小和编码校验；失败时显示具体原因，且不留下半成品记录。</p></div>
+        <div class="state"><strong>存储空间不足</strong><p>显示所需空间和当前可用空间，提供“管理语音缓存”入口，不自动删除小说或音色。</p></div>
+        <div class="state"><strong>语音生成跟不上播放</strong><p>暂停在当前句并显示“正在准备语音”，不跳句；用户可切换到流畅模式。</p></div>
+        <div class="state"><strong>音色包不兼容</strong><p>原子校验格式版本、引擎、哈希、WAV 参数与授权声明；任一失败即拒绝整个包。</p></div>
+        <div class="state"><strong>播放被其他应用打断</strong><p>来电或导航抢占音频时自动暂停；音频焦点恢复后等待用户主动继续。</p></div>
+        <div class="state"><strong>播放中编辑正文</strong><p>先停止当前语句；保存后只重建当前章节的分页和语音队列，再回到编辑锚点。</p></div>
+        <div class="state"><strong>应用被系统结束</strong><p>保留最后确认的字符位置和播放器状态；再次打开时恢复页面，语音缓存按需重建。</p></div>
+        <div class="state"><strong>重复导入同一文件</strong><p>比较内容哈希后让用户选择“打开已有副本”或“另存为一本”，避免静默覆盖编辑内容。</p></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>界面原则</h2>
+      <div class="principles">
+        <div class="principle"><strong>离线可见</strong><span>应用不声明网络权限；所有需要模型的功能在安装包与本地音色包中完成。</span></div>
+        <div class="principle"><strong>位置稳定</strong><span>字号、主题或正文变化后，仍通过字符锚点恢复到接近原来的位置。</span></div>
+        <div class="principle"><strong>操作可撤销</strong><span>编辑和删除等高风险操作提供撤销或明确确认，不修改用户原始文件。</span></div>
+        <div class="principle"><strong>状态不遮挡正文</strong><span>朗读高亮、加载提示和播放器保持固定区域，不使页面跳动或覆盖文字。</span></div>
+      </div>
+    </section>
+
+    <div class="confirm"><strong>本节确认点：</strong>底部导航采用“书架 / 音色 / 设置”；阅读页默认为专注翻页；情感朗读、推理模式和定时停止位于朗读控制面板；异常不会破坏原小说或静默跳过内容。</div>
+  </main>
+</body>
+</html>

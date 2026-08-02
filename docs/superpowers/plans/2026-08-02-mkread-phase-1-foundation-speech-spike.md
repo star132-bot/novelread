@@ -6,7 +6,7 @@
 
 **Architecture:** Use a single Compose `:app`, a manual application container, and a narrow `SpeechEngine` interface. Package model data from a developer-local asset directory at build time, load sherpa-onnx through its prebuilt AAR on a bounded executor, and expose a debug-only speech-spike screen before feature development begins.
 
-**Tech Stack:** JDK 17, Gradle 8.8, Android Gradle Plugin 8.6.0, Kotlin/Compose 2.0.21, compileSdk 35, sherpa-onnx 1.13.2 AAR, ZipVoice-Distill INT8 zh/en model, Vocos 24 kHz, JUnit 4, AndroidX Test.
+**Tech Stack:** JDK 17, Gradle 8.8, Android Gradle Plugin 8.6.0, Kotlin/Compose 2.0.21, compileSdk 35, sherpa-onnx 1.13.4 AAR, ZipVoice-Distill INT8 zh/en model, Vocos 24 kHz, JUnit 4, AndroidX Test.
 
 ---
 
@@ -50,7 +50,7 @@ captures/
 *.hprof
 ```
 
-- [ ] Implement `scripts/android-env.ps1` so it searches in this order: `$env:MKREAD_JAVA_HOME`, directories matching `C:\Program Files\Eclipse Adoptium\jdk-17*`, then `D:\java\jdk17*`; verifies `<candidate>\bin\java.exe`; parses `java -version`; rejects any major version other than 17; sets `JAVA_HOME`, `ANDROID_SDK_ROOT=D:\spless\AffectLive\.android-sdk`, and prepends both tool directories to `Path`; writes the resolved paths.
+- [ ] Implement `scripts/android-env.ps1` so it searches in this order: `$env:MKREAD_JAVA_HOME`, directories matching `C:\Program Files\Microsoft\jdk-17*`, `C:\Program Files\Eclipse Adoptium\jdk-17*`, then `D:\java\jdk17*`; verifies `<candidate>\bin\java.exe`; parses `java -version`; rejects any major version other than 17; sets `JAVA_HOME`, `ANDROID_SDK_ROOT=D:\spless\AffectLive\.android-sdk`, and prepends both tool directories to `Path`; writes the resolved paths. On this workstation it must resolve `C:\Program Files\Microsoft\jdk-17.0.16.8-hotspot` without installing another JDK.
 
 - [ ] Implement `scripts/start-emulator.ps1` from the verified paths in `android-emulator-start-guide.md`: check `adb devices` for an online emulator, otherwise start `emulator.exe -avd AffectLive_API_35 -no-snapshot-save` through `Start-Process -WindowStyle Hidden`, wait at most 180 seconds for `sys.boot_completed=1`, and fail with the emulator log path when boot does not complete.
 
@@ -205,14 +205,14 @@ git commit -m "test: enforce offline Android package contract"
 - [ ] Write the script with these fixed upstream URLs:
 
 ```text
-https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.2/sherpa-onnx-1.13.2.aar
+https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.4/sherpa-onnx-1.13.4.aar
 https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-zipvoice-distill-int8-zh-en-emilia.tar.bz2
 https://github.com/k2-fsa/sherpa-onnx/releases/download/vocoder-models/vocos_24khz.onnx
 ```
 
 - [ ] Make `fetch-speech-assets.ps1` download into `.local-assets/downloads`, compute SHA-256 for every archive, and create `speech-assets.lock.json` on the first trusted fetch. On later runs it must compare hashes to the committed lock before extracting or copying any file.
 
-- [ ] Extract with `tar.exe`, copy the AAR to `app/libs/sherpa-onnx-1.13.2.aar`, and produce this build-time layout:
+- [ ] Extract with `tar.exe`, copy the AAR to `app/libs/sherpa-onnx-1.13.4.aar`, and produce this build-time layout:
 
 ```text
 .local-assets/debug-assets/models/zipvoice/encoder.int8.onnx
@@ -365,7 +365,7 @@ git commit -m "feat: install verified speech assets privately"
 - Test: `app/src/test/java/com/mkread/app/speech/ZipVoiceConfigTest.kt`
 - Test: `app/src/androidTest/java/com/mkread/app/speech/ZipVoiceSmokeTest.kt`
 
-- [ ] Add `implementation(files("libs/sherpa-onnx-1.13.2.aar"))` and retain only `arm64-v8a` and `x86_64` native libraries.
+- [ ] Add `implementation(files("libs/sherpa-onnx-1.13.4.aar"))` and retain only `arm64-v8a` and `x86_64` native libraries.
 
 - [ ] Extract a pure `ZipVoicePaths.toConfig()` function and test that it maps private paths to `tokens.txt`, `encoder.int8.onnx`, `decoder.int8.onnx`, `vocos_24khz.onnx`, `espeak-ng-data`, and `lexicon.txt`, sets provider `cpu`, `numThreads=2`, `maxNumSentences=1`, and `silenceScale=0.2f`.
 

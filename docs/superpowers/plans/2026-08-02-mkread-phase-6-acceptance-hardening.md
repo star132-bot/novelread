@@ -158,36 +158,36 @@ git add scripts/run-scale-acceptance.ps1 app/src/androidTest/java/com/mkread/app
 git commit -m "test: prove MKread content scale targets"
 ```
 
-## Task 5: Run Thirty-Minute Background Narration
+## Task 5: Run Sixty-Minute Background Narration
 
 **Files:**
 - Create: `scripts/run-narration-endurance.ps1`
 - Create: `app/src/androidTest/java/com/mkread/app/acceptance/NarrationEnduranceSetupTest.kt`
-- Create: `docs/test-evidence/emulator-api35/narration-30m.md`
+- Create: `docs/test-evidence/emulator-api35/narration-60m.md`
 
-- [ ] Seed at least 240 short deterministic sentence ids and pre-generate/cache enough fixture audio for 35 minutes. Separately generate ten representative sentences with real ZipVoice before the run to confirm the native path; do not rely on 240 native generations for deterministic sequence testing.
+- [ ] Seed at least 480 short deterministic sentence ids and pre-generate/cache enough fixture audio for 65 minutes. Separately generate ten representative sentences with real ZipVoice before the run to confirm the native path; do not rely on 480 native generations for deterministic sequence testing.
 
-- [ ] Start at id 0, background MKread, turn the emulator screen off, and poll MediaSession plus process/service state every ten seconds for 30 minutes. At minute 5 issue pause/resume, minute 10 headset-hook equivalent, minute 15 transient focus loss, minute 20 remove the task from recents, and minute 25 change playback speed.
+- [ ] Start at id 0, background MKread, turn the emulator screen off, and poll MediaSession plus process/service state every ten seconds for 60 minutes. At minute 10 issue pause/resume, minute 20 headset-hook equivalent, minute 30 transient focus loss, minute 40 remove the task from recents, and minute 50 change playback speed.
 
-- [ ] Append timestamp, media id, playback state, position, process pid, service foreground state, and cache size to a CSV. The script fails on duplicated/reversed/skipped ids, silent idle longer than 30 seconds without a recorded generation wait, process crash, missing service, or final duration under 30 minutes.
+- [ ] Append timestamp, media id, playback state, position, process pid, service foreground state, and cache size to a CSV. The script fails on duplicated/reversed/skipped ids, silent idle longer than 30 seconds without a recorded generation wait, process crash, missing service, or final duration under 60 minutes.
 
 - [ ] After completion reopen MKread and assert the persisted checkpoint equals the next unread sentence. Scan logcat for fatal exceptions, ANRs, skipped-sentence warnings, and fixture prose leakage.
 
 - [ ] Run:
 
 ```powershell
-.\scripts\run-narration-endurance.ps1 -Minutes 30
+.\scripts\run-narration-endurance.ps1 -Minutes 60
 ```
 
 Expected: continuous ordered narration, external events behave as specified, no silent skip, and exact checkpoint restoration.
 
-- [ ] Summarize sequence count, waits/reasons, controls, pid/service continuity, cache growth/eviction, crash/ANR scan, and final checkpoint in `narration-30m.md`.
+- [ ] Summarize sequence count, waits/reasons, controls, pid/service continuity, cache growth/eviction, crash/ANR scan, and final checkpoint in `narration-60m.md`.
 
 - [ ] Commit:
 
 ```powershell
-git add scripts/run-narration-endurance.ps1 app/src/androidTest/java/com/mkread/app/acceptance/NarrationEnduranceSetupTest.kt docs/test-evidence/emulator-api35/narration-30m.md
-git commit -m "test: prove thirty minute background narration"
+git add scripts/run-narration-endurance.ps1 app/src/androidTest/java/com/mkread/app/acceptance/NarrationEnduranceSetupTest.kt docs/test-evidence/emulator-api35/narration-60m.md
+git commit -m "test: prove sixty minute background narration"
 ```
 
 ## Task 6: Complete Accessibility And Responsive UI Checks
@@ -237,11 +237,11 @@ git commit -m "test: verify accessible responsive Android UI"
 
 - [ ] Warm the model once, then synthesize a fixed 50-sentence Chinese/English corpus in fluent mode and 20 sentences in high-quality mode. Record initialization time, sentence characters, audio duration, generation duration, real-time factor, peak PSS, native heap, cache hits, and boundary waits. Do not commit corpus prose; commit corpus hash and aggregate statistics.
 
-- [ ] Hard fluent gates on the approved 6 GB-class target: initialization at most 30 seconds; p50 RTF at most 0.85; p95 RTF at most 1.00; peak PSS at most 2.5 GiB; no allocation failure; and a 30-minute prefetch narration simulation with zero skipped ids and no boundary wait longer than 10 seconds after initial preparation.
+- [ ] Hard fluent gates on the approved 6 GB-class target: initialization at most 30 seconds; p50 RTF at most 0.85; p95 RTF at most 1.00; peak PSS at most 2.5 GiB; no allocation failure; and a 60-minute prefetch narration simulation with zero skipped ids and no boundary wait longer than 10 seconds after initial preparation.
 
 - [ ] High-quality gates: initializes without allocation fallback on a non-low-RAM device, p95 RTF at most 1.50, peak PSS at most 3.0 GiB, and no skipped id. If it fails, high quality remains disabled for that model/device while fluent must still pass.
 
-- [ ] During a 30-minute screen-off real-voice run sample thermal/battery/memory each minute. Require no Android thermal status `SEVERE` or higher for more than two consecutive samples, no low-memory kill, stable PSS without monotonic leak, and battery drop no greater than 20 percentage points over 30 minutes when unplugged from a starting charge of at least 80 percent.
+- [ ] During a 60-minute screen-off real-voice run sample thermal/battery/memory each minute. Require no Android thermal status `SEVERE` or higher for more than two consecutive samples, no low-memory kill, stable PSS without monotonic leak, and battery drop no greater than 35 percentage points over 60 minutes when unplugged from a starting charge of at least 80 percent.
 
 - [ ] Run only when a real device is connected:
 
@@ -306,7 +306,7 @@ git commit -m "build: harden MKread Android packaging"
 - Create: `docs/test-evidence/android-1.0-checklist.md`
 - Modify: `README.md`
 
-- [ ] Make `run-acceptance.ps1` execute toolchain check, pinned asset verification, unit tests, lint, debug assembly, offline manifest inspection, all emulator instrumentation, offline journey, scale journey, and 30-minute endurance in that order. Accept `-SkipEndurance` only for local iteration; final evidence must run without it.
+- [ ] Make `run-acceptance.ps1` execute toolchain check, pinned asset verification, unit tests, lint, debug assembly, offline manifest inspection, all emulator instrumentation, offline journey, scale journey, and 60-minute endurance in that order. Accept `-SkipEndurance` only for local iteration; final evidence must run without it.
 
 - [ ] The script writes one machine-readable JSON summary with Git SHA, command, duration, exit code, report path, and evidence hash for every gate. A non-zero sub-gate stops later destructive/setup actions but still restores emulator radio/screen state in `finally`.
 

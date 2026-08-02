@@ -426,7 +426,7 @@ Playback speed is intentionally excluded because Media3 applies it during playba
 - Compare emotion enabled and disabled with repeatable sample passages.
 - Import a valid `.mkvoice`, preview it, and use it for narration.
 - Continue narration with the app backgrounded and the screen locked.
-- Run continuous background narration for 30 minutes without skipped sentences.
+- Run continuous background narration for 60 minutes without skipped sentences.
 - Validate the 20 MB single-book and 100-book library targets.
 
 The emulator is the functional gate. An ARM64 phone is the mandatory performance gate for real-time factor, memory, temperature, and battery consumption before declaring the speech engine production-ready.

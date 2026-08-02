@@ -308,7 +308,7 @@ git commit -m "fix: restore narration without skipping text"
 - Create: `app/src/androidTest/java/com/mkread/app/playback/BackgroundNarrationJourneyTest.kt`
 - Create: `docs/test-evidence/emulator-api35/phase-4.md`
 
-- [ ] Make the smoke script install debug, grant notification permission, seed a deterministic 30-sentence fixture, start narration from sentence 0, background the app, poll MediaSession every ten seconds for five minutes, and fail if media ids are duplicated, reversed, or advance by more than one. The final 30-minute endurance run belongs to Phase 6.
+- [ ] Make the smoke script install debug, grant notification permission, seed a deterministic 30-sentence fixture, start narration from sentence 0, background the app, poll MediaSession every ten seconds for five minutes, and fail if media ids are duplicated, reversed, or advance by more than one. The final 60-minute endurance run belongs to Phase 6.
 
 - [ ] The instrumented journey uses real ZipVoice for at least three short Chinese/English sentences, then cache-backed fixture WAVs for deterministic external-control scenarios. Assert cache hit on replay and no new generation when only speed changes.
 

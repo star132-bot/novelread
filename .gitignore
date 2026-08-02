@@ -1,0 +1,20 @@
+# Android and Gradle
+.gradle/
+.idea/
+local.properties
+**/build/
+*.iml
+
+# Local Android tooling
+.android-sdk/
+.android-avd/
+
+# Local design and verification artifacts
+.superpowers/
+.playwright-cli/
+captures/
+output/
+
+# OS files
+Thumbs.db
+.DS_Store

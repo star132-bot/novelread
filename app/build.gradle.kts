@@ -85,3 +85,18 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 }
+
+tasks.register<Exec>("offlineContract") {
+    group = "verification"
+    description = "Verifies that the merged debug APK has no network permissions."
+    dependsOn("assembleDebug")
+    workingDir(rootProject.projectDir)
+    commandLine(
+        "powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        rootProject.file("scripts/check-offline-manifest.ps1").absolutePath,
+    )
+}

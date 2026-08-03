@@ -11,7 +11,15 @@ object WaveValidator {
     private const val EXPECTED_BITS_PER_SAMPLE = 16
     private const val PCM_FORMAT = 1
 
-    fun requirePlayable(file: File): Int {
+    internal data class PlayableWave(
+        val dataOffset: Long,
+        val sampleRate: Int,
+        val sampleCount: Int,
+    )
+
+    fun requirePlayable(file: File): Int = inspectPlayable(file).sampleCount
+
+    internal fun inspectPlayable(file: File): PlayableWave {
         require(file.isFile) { "WAV file does not exist: ${file.path}" }
         require(file.length() >= MINIMUM_WAVE_BYTES) { "WAV header is shorter than 44 bytes" }
 
@@ -25,6 +33,7 @@ object WaveValidator {
 
             var formatFound = false
             var dataSize: Long? = null
+            var dataOffset: Long? = null
             while (wave.filePointer + 8L <= riffEnd) {
                 val chunkId = wave.readFourCc()
                 val chunkSize = wave.readLittleEndianUnsignedInt()
@@ -55,6 +64,7 @@ object WaveValidator {
                     "data" -> {
                         require(dataSize == null) { "WAV must contain only one data chunk" }
                         dataSize = chunkSize
+                        dataOffset = chunkStart
                     }
                 }
 
@@ -69,7 +79,11 @@ object WaveValidator {
             require(playableBytes % 2L == 0L) { "WAV data is not aligned to PCM16 samples" }
             val sampleCount = playableBytes / 2L
             require(sampleCount <= Int.MAX_VALUE) { "WAV contains too many samples" }
-            sampleCount.toInt()
+            PlayableWave(
+                dataOffset = requireNotNull(dataOffset),
+                sampleRate = EXPECTED_SAMPLE_RATE.toInt(),
+                sampleCount = sampleCount.toInt(),
+            )
         }
     }
 

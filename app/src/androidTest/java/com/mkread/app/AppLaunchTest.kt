@@ -14,8 +14,8 @@ class AppLaunchTest {
     val composeRule = createAndroidComposeRule<MainActivity>()
 
     @Test
-    fun foundationScreen_isDisplayed() {
-        composeRule.onNodeWithText("MKread").assertIsDisplayed()
-        composeRule.onNodeWithText("语音引擎准备中").assertIsDisplayed()
+    fun debugSpeechScreen_isDisplayed() {
+        composeRule.onNodeWithText("MKread 离线语音验证").assertIsDisplayed()
+        composeRule.onNodeWithText("生成并试听").assertIsDisplayed()
     }
 }

@@ -7,6 +7,7 @@ import java.io.InputStream
 import java.io.OutputStreamWriter
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
@@ -44,6 +45,8 @@ interface BookStorage {
     fun discard(staging: ImportStaging)
 
     fun deleteBook(bookId: String)
+
+    fun bookExists(bookId: String): Boolean
 
     fun cleanStaleTransactions(nowMillis: Long)
 
@@ -330,11 +333,22 @@ class FileBookStorage(
         }
     }
 
+    override fun bookExists(bookId: String): Boolean {
+        requireSafeSegment(bookId)
+        return Files.isDirectory(
+            containedPath(booksRoot, bookId),
+            LinkOption.NOFOLLOW_LINKS,
+        )
+    }
+
     override fun cleanStaleTransactions(nowMillis: Long) {
         val cutoff = nowMillis - ImportLimits.STALE_TRANSACTION_MILLIS
         importsRoot.toFile().listFiles()
             .orEmpty()
-            .filter { it.isDirectory && it.lastModified() < cutoff }
+            .filter {
+                Files.isDirectory(it.toPath(), LinkOption.NOFOLLOW_LINKS) &&
+                    it.lastModified() < cutoff
+            }
             .forEach { transaction ->
                 val candidate = transaction.toPath().toAbsolutePath().normalize()
                 requireDirectChild(importsRoot, candidate)
@@ -351,7 +365,10 @@ class FileBookStorage(
         retainedBookIds.forEach(::requireSafeSegment)
         booksRoot.toFile().listFiles()
             .orEmpty()
-            .filter { it.isDirectory && it.name !in retainedBookIds }
+            .filter {
+                Files.isDirectory(it.toPath(), LinkOption.NOFOLLOW_LINKS) &&
+                    it.name !in retainedBookIds
+            }
             .forEach { book ->
                 val candidate = book.toPath().toAbsolutePath().normalize()
                 requireDirectChild(booksRoot, candidate)

@@ -137,6 +137,18 @@ class BookStorageTest {
     }
 
     @Test
+    fun bookExists_reportsOnlyPromotedPrivateBookDirectories() {
+        val staging = storage.begin("exists")
+        storage.writeChapter(staging, ordinal = 1, text = "Body")
+
+        assertFalse(storage.bookExists("book-exists"))
+        storage.promote(staging, "book-exists")
+
+        assertTrue(storage.bookExists("book-exists"))
+        assertFalse(storage.bookExists("other-book"))
+    }
+
+    @Test
     fun promote_moveFailure_removesStagingAndPartialTarget() {
         val failingStorage = FileBookStorage(
             filesDir = filesDir,

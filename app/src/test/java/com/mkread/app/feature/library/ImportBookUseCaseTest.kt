@@ -262,7 +262,7 @@ class ImportBookUseCaseTest {
 
     private class FakeRepository(
         private val events: MutableList<String>,
-    ) : BookRepository {
+    ) : BookImportRepository {
         var existingBookId: String? = null
         var commitFailure: Throwable? = null
         var committedBook: BookEntity? = null
@@ -352,6 +352,9 @@ class ImportBookUseCaseTest {
             events += "delete-book"
             File(root, "files/books/$bookId").deleteRecursively()
         }
+
+        override fun bookExists(bookId: String): Boolean =
+            File(root, "files/books/$bookId").isDirectory
 
         override fun cleanStaleTransactions(nowMillis: Long) = Unit
 

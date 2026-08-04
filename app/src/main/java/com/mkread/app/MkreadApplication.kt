@@ -12,4 +12,9 @@ class MkreadApplication : Application(), Configuration.Provider {
         get() = Configuration.Builder()
             .setWorkerFactory(container.importWorkerFactory)
             .build()
+
+    override fun onCreate() {
+        super.onCreate()
+        container.reconcileLibraryOnStartup()
+    }
 }

@@ -31,8 +31,34 @@ abstract class BookDao {
     @Query("SELECT * FROM books WHERE source_sha256 = :sourceSha256 LIMIT 1")
     abstract suspend fun getBySourceSha256(sourceSha256: String): BookEntity?
 
+    @Query("SELECT * FROM books WHERE id = :bookId LIMIT 1")
+    abstract suspend fun getById(bookId: String): BookEntity?
+
+    @Query("SELECT id FROM books ORDER BY id ASC")
+    abstract suspend fun getAllIds(): List<String>
+
+    @Query(
+        """
+        UPDATE books
+        SET title = :title, author = :author, modified_at = :modifiedAt
+        WHERE id = :bookId
+        """,
+    )
+    abstract suspend fun updateMetadata(
+        bookId: String,
+        title: String,
+        author: String?,
+        modifiedAt: Long,
+    ): Int
+
+    @Query("UPDATE books SET last_opened_at = :openedAt WHERE id = :bookId")
+    abstract suspend fun updateLastOpened(bookId: String, openedAt: Long): Int
+
     @Query("DELETE FROM books WHERE id = :bookId")
     abstract suspend fun deleteById(bookId: String): Int
+
+    @Query("DELETE FROM books WHERE id IN (:bookIds)")
+    abstract suspend fun deleteByIds(bookIds: List<String>): Int
 
     @Query(LIBRARY_BY_LAST_OPENED)
     abstract fun observeByLastOpened(escapedQuery: String): Flow<List<BookSummary>>

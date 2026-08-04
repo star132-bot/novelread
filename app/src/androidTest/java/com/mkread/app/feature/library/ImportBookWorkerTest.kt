@@ -278,7 +278,7 @@ class ImportBookWorkerTest {
             .build()
     }
 
-    private class FakeRepository : BookRepository {
+    private class FakeRepository : BookImportRepository {
         var commitCount = 0
 
         override suspend fun findBookIdBySourceHash(sourceSha256: String): String? = null

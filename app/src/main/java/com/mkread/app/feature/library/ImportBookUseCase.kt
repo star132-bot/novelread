@@ -91,7 +91,7 @@ class UnsupportedSourceTypeException : Exception("ZIP is not an EPUB")
 
 class ImportBookUseCase(
     private val storage: BookStorage,
-    private val repository: BookRepository,
+    private val repository: BookImportRepository,
     private val txtParser: BookParser = TxtBookParser(),
     private val epubParser: BookParser = EpubBookParser(),
     private val sourceTypeDetector: SourceTypeDetector = ContentSourceTypeDetector(),

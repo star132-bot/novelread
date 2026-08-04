@@ -23,7 +23,7 @@ class AppContainer(application: Application) {
         context,
         MkreadDatabase::class.java,
         DATABASE_NAME,
-    ).build()
+    ).addMigrations(MkreadDatabase.MIGRATION_1_2).build()
     val storage = FileBookStorage(context.filesDir, context.cacheDir)
     val repository = RoomBookRepository(database, storage)
     val documentAccess = AndroidDocumentAccess(context)

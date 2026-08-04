@@ -3,7 +3,7 @@ package com.mkread.app.core.files
 import java.io.File
 
 interface BookParser {
-    fun parse(source: File): ParsedBook
+    fun parse(source: File, sourceName: String = source.name): ParsedBook
 }
 
 data class ParsedBook(

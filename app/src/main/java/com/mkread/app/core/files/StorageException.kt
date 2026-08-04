@@ -3,6 +3,8 @@ package com.mkread.app.core.files
 enum class StorageFailure {
     SOURCE_TOO_LARGE,
     CHAPTER_TOO_LARGE,
+    COVER_TOO_LARGE,
+    UNSUPPORTED_COVER,
     INVALID_PATH,
     TRANSACTION_EXISTS,
     BOOK_EXISTS,

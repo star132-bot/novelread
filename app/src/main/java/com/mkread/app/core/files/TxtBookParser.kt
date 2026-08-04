@@ -7,7 +7,7 @@ class TxtBookParser(
     private val encodingDetector: TxtEncodingDetector = TxtEncodingDetector(),
     private val chapterDetector: TxtChapterDetector = TxtChapterDetector(),
 ) : BookParser {
-    override fun parse(source: File): ParsedBook {
+    override fun parse(source: File, sourceName: String): ParsedBook {
         if (!source.isFile) {
             throw BookParseException(BookParseFailure.INVALID_CONTENT, "TXT source is not a file")
         }
@@ -37,7 +37,7 @@ class TxtBookParser(
             )
         }
         return ParsedBook(
-            title = deriveTitle(decoded.text, source),
+            title = deriveTitle(decoded.text, sourceName),
             author = null,
             language = null,
             coverBytes = null,
@@ -45,7 +45,7 @@ class TxtBookParser(
         )
     }
 
-    private fun deriveTitle(text: String, source: File): String {
+    private fun deriveTitle(text: String, sourceName: String): String {
         val firstNonEmpty = text.lineSequence()
             .map(String::trim)
             .firstOrNull(String::isNotEmpty)
@@ -56,7 +56,8 @@ class TxtBookParser(
         ) {
             return firstNonEmpty
         }
-        return source.nameWithoutExtension.ifBlank { FALLBACK_TITLE }
+        val displayName = sourceName.substringAfterLast('/').substringAfterLast('\\')
+        return displayName.substringBeforeLast('.', displayName).ifBlank { FALLBACK_TITLE }
     }
 
     private companion object {

@@ -15,7 +15,7 @@ import org.w3c.dom.NodeList
 class EpubBookParser(
     private val zipReader: SafeZipReader = SafeZipReader(),
 ) : BookParser {
-    override fun parse(source: File): ParsedBook {
+    override fun parse(source: File, sourceName: String): ParsedBook {
         try {
             zipReader.open(source).use { archive ->
                 requireEpubMimetype(archive)
@@ -37,7 +37,7 @@ class EpubBookParser(
                 }
                 return ParsedBook(
                     title = packageDocument.firstText("title")
-                        ?: source.nameWithoutExtension.ifBlank { "Untitled" },
+                        ?: sourceName.fallbackTitle(),
                     author = packageDocument.firstText("creator"),
                     language = packageDocument.firstText("language"),
                     coverBytes = readCover(
@@ -271,6 +271,11 @@ class EpubBookParser(
 
     private fun StringBuilder.ensureNewline() {
         if (isNotEmpty() && last() != '\n') append('\n')
+    }
+
+    private fun String.fallbackTitle(): String {
+        val displayName = substringAfterLast('/').substringAfterLast('\\')
+        return displayName.substringBeforeLast('.', displayName).ifBlank { "Untitled" }
     }
 
     private data class ManifestItem(

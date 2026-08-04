@@ -37,7 +37,11 @@ interface BookStorage {
         metadata: StoredBookMetadata,
     )
 
+    fun writeCover(staging: ImportStaging, bytes: ByteArray): String
+
     fun promote(staging: ImportStaging, bookId: String): File
+
+    fun discard(staging: ImportStaging)
 
     fun deleteBook(bookId: String)
 
@@ -255,6 +259,36 @@ class FileBookStorage(
         }
     }
 
+    override fun writeCover(staging: ImportStaging, bytes: ByteArray): String {
+        if (bytes.size.toLong() > ImportLimits.COVER_BYTES) {
+            throw StorageException(
+                StorageFailure.COVER_TOO_LARGE,
+                "Cover exceeds the ${ImportLimits.COVER_BYTES} byte limit",
+            )
+        }
+        val extension = coverExtension(bytes)
+            ?: throw StorageException(
+                StorageFailure.UNSUPPORTED_COVER,
+                "Cover is not a supported JPEG, PNG, or WebP image",
+            )
+        val transaction = requireStaging(staging)
+        val bookDirectory = containedPath(transaction, BOOK_DIRECTORY)
+        val target = containedPath(bookDirectory, "cover.$extension")
+        val temporary = containedPath(bookDirectory, "cover.$extension.tmp")
+        try {
+            FileOutputStream(temporary.toFile()).use { output ->
+                output.write(bytes)
+                output.flush()
+                output.fd.sync()
+            }
+            atomicReplace(temporary, target)
+        } catch (failure: IOException) {
+            temporary.toFile().delete()
+            throw StorageException(StorageFailure.IO_ERROR, "Unable to write cover", failure)
+        }
+        return target.fileName.toString()
+    }
+
     override fun promote(staging: ImportStaging, bookId: String): File {
         requireSafeSegment(bookId)
         val transaction = requireStaging(staging)
@@ -276,6 +310,16 @@ class FileBookStorage(
         }
         transaction.toFile().deleteRecursively()
         return target
+    }
+
+    override fun discard(staging: ImportStaging) {
+        val transaction = stagingPath(staging).toFile()
+        if (transaction.exists() && !transaction.deleteRecursively()) {
+            throw StorageException(
+                StorageFailure.IO_ERROR,
+                "Unable to discard import transaction: ${staging.transactionId}",
+            )
+        }
     }
 
     override fun deleteBook(bookId: String) {
@@ -321,6 +365,15 @@ class FileBookStorage(
     }
 
     private fun requireStaging(staging: ImportStaging): Path {
+        val actual = stagingPath(staging)
+        val actualBook = staging.bookDirectory.toPath().toAbsolutePath().normalize()
+        if (!Files.isDirectory(actual) || !Files.isDirectory(actualBook)) {
+            throw StorageException(StorageFailure.IO_ERROR, "Import staging no longer exists")
+        }
+        return actual
+    }
+
+    private fun stagingPath(staging: ImportStaging): Path {
         requireSafeSegment(staging.transactionId)
         val expected = containedPath(importsRoot, staging.transactionId)
         val actual = staging.directory.toPath().toAbsolutePath().normalize()
@@ -328,11 +381,20 @@ class FileBookStorage(
         if (actual != expected || actualBook != containedPath(expected, BOOK_DIRECTORY)) {
             throw StorageException(StorageFailure.INVALID_PATH, "Invalid import staging path")
         }
-        if (!Files.isDirectory(actual) || !Files.isDirectory(actualBook)) {
-            throw StorageException(StorageFailure.IO_ERROR, "Import staging no longer exists")
-        }
         return actual
     }
+
+    private fun coverExtension(bytes: ByteArray): String? = when {
+        bytes.startsWith(PNG_SIGNATURE) -> "png"
+        bytes.startsWith(JPEG_SIGNATURE) -> "jpg"
+        bytes.size >= 12 &&
+            bytes.copyOfRange(0, 4).contentEquals(RIFF_SIGNATURE) &&
+            bytes.copyOfRange(8, 12).contentEquals(WEBP_SIGNATURE) -> "webp"
+        else -> null
+    }
+
+    private fun ByteArray.startsWith(prefix: ByteArray): Boolean =
+        size >= prefix.size && prefix.indices.all { index -> this[index] == prefix[index] }
 
     private fun normalizedExtension(extension: String): String {
         val normalized = extension.removePrefix(".").lowercase(Locale.ROOT)
@@ -397,5 +459,11 @@ class FileBookStorage(
         val EXTENSION = Regex("[a-z0-9]{1,10}")
         const val BOOK_DIRECTORY = "book"
         const val METADATA_FILE = "metadata.json"
+        val JPEG_SIGNATURE = byteArrayOf(0xff.toByte(), 0xd8.toByte(), 0xff.toByte())
+        val PNG_SIGNATURE = byteArrayOf(
+            0x89.toByte(), 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+        )
+        val RIFF_SIGNATURE = "RIFF".toByteArray(Charsets.US_ASCII)
+        val WEBP_SIGNATURE = "WEBP".toByteArray(Charsets.US_ASCII)
     }
 }

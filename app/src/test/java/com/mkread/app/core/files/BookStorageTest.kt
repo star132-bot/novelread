@@ -87,6 +87,42 @@ class BookStorageTest {
     }
 
     @Test
+    fun writeCover_usesImageSignatureForStableRelativeName() {
+        val staging = storage.begin("cover")
+        val png = byteArrayOf(
+            0x89.toByte(), 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+            0x00, 0x00,
+        )
+
+        val relativePath = storage.writeCover(staging, png)
+
+        assertEquals("cover.png", relativePath)
+        assertArrayEquals(png, File(staging.bookDirectory, relativePath).readBytes())
+    }
+
+    @Test
+    fun writeCover_rejectsUnsupportedImageSignature() {
+        val staging = storage.begin("tx-cover-invalid")
+
+        assertStorageFailure(StorageFailure.UNSUPPORTED_COVER) {
+            storage.writeCover(staging, "not-an-image".toByteArray(Charsets.UTF_8))
+        }
+
+        assertFalse(File(staging.bookDirectory, "cover.png").exists())
+    }
+
+    @Test
+    fun discard_removesOnlyTheSelectedTransaction() {
+        val discarded = storage.begin("discarded")
+        val retained = storage.begin("retained")
+
+        storage.discard(discarded)
+
+        assertFalse(discarded.directory.exists())
+        assertTrue(retained.directory.exists())
+    }
+
+    @Test
     fun promote_atomicallyMovesNormalizedBookAndCleansTransaction() {
         val staging = storage.begin("promote")
         val chapter = storage.writeChapter(staging, ordinal = 1, text = "Body")

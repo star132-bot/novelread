@@ -1,3 +1,34 @@
 package com.mkread.app
 
-class AppContainer
+import android.app.Application
+import androidx.room.Room
+import androidx.work.WorkManager
+import com.mkread.app.core.database.MkreadDatabase
+import com.mkread.app.core.files.FileBookStorage
+import com.mkread.app.feature.library.AndroidDocumentAccess
+import com.mkread.app.feature.library.BookImportScheduler
+import com.mkread.app.feature.library.ImportBookUseCase
+import com.mkread.app.feature.library.ImportBookWorkerFactory
+import com.mkread.app.feature.library.RoomBookRepository
+
+class AppContainer(application: Application) {
+    private val context = application.applicationContext
+
+    val database: MkreadDatabase = Room.databaseBuilder(
+        context,
+        MkreadDatabase::class.java,
+        DATABASE_NAME,
+    ).build()
+    val storage = FileBookStorage(context.filesDir, context.cacheDir)
+    val repository = RoomBookRepository(database)
+    val documentAccess = AndroidDocumentAccess(context)
+    val importer = ImportBookUseCase(storage, repository)
+    val importWorkerFactory = ImportBookWorkerFactory(importer, documentAccess)
+    val importScheduler: BookImportScheduler by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        BookImportScheduler(WorkManager.getInstance(context), documentAccess)
+    }
+
+    private companion object {
+        const val DATABASE_NAME = "mkread.db"
+    }
+}

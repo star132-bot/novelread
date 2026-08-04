@@ -11,6 +11,16 @@ import com.mkread.app.feature.library.BookImportScheduler
 import com.mkread.app.feature.library.ImportBookUseCase
 import com.mkread.app.feature.library.ImportBookWorkerFactory
 import com.mkread.app.feature.library.RoomBookRepository
+import com.mkread.app.feature.reader.AndroidPaginationEngine
+import com.mkread.app.feature.reader.ChapterMetadataSource
+import com.mkread.app.feature.reader.FileChapterContentRepository
+import com.mkread.app.feature.reader.FileChapterEditor
+import com.mkread.app.feature.reader.FilePaginationCache
+import com.mkread.app.feature.reader.PaginationDerivedDataInvalidator
+import com.mkread.app.feature.reader.PaginationSpec
+import com.mkread.app.feature.reader.ReaderBookSource
+import com.mkread.app.feature.reader.RoomChapterEditMetadata
+import com.mkread.app.feature.reader.RoomReadingPositionRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -31,6 +41,37 @@ class AppContainer(application: Application) {
     val importWorkerFactory = ImportBookWorkerFactory(importer, documentAccess)
     val importScheduler: BookImportScheduler by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         BookImportScheduler(WorkManager.getInstance(context), documentAccess)
+    }
+    private val chapterMetadataSource = object : ChapterMetadataSource {
+        override suspend fun getChapter(chapterId: String) = database.chapterDao().getById(chapterId)
+
+        override suspend fun getChapters(bookId: String) = database.chapterDao().getByBookId(bookId)
+    }
+    val readerBookSource = object : ReaderBookSource {
+        override suspend fun getBook(bookId: String) = database.bookDao().getById(bookId)
+
+        override suspend fun markOpened(bookId: String) = repository.markOpened(bookId)
+    }
+    val chapterContentRepository = FileChapterContentRepository(context.filesDir, chapterMetadataSource)
+    val readingPositionRepository = RoomReadingPositionRepository(database)
+    val paginationCache = FilePaginationCache(context.cacheDir)
+    val paginationEngine = AndroidPaginationEngine(paginationCache)
+    val chapterEditor = FileChapterEditor(
+        filesDir = context.filesDir,
+        cacheDir = context.cacheDir,
+        metadata = RoomChapterEditMetadata(database),
+        invalidator = PaginationDerivedDataInvalidator(paginationCache),
+    )
+    val initialReaderSpec: PaginationSpec = context.resources.displayMetrics.let { metrics ->
+        PaginationSpec(
+            widthPx = metrics.widthPixels.coerceAtLeast(1),
+            heightPx = (metrics.heightPixels * 3 / 4).coerceAtLeast(1),
+            densityDpi = metrics.densityDpi.coerceAtLeast(1),
+            fontFamilyId = "sans-serif",
+            fontSizeSp = 18f,
+            lineSpacingMultiplier = 1.4f,
+            horizontalMarginPx = (16f * metrics.density).toInt().coerceAtLeast(0),
+        )
     }
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 

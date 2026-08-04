@@ -17,6 +17,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -284,6 +285,194 @@ class ReaderViewModelTest {
     }
 
     @Test
+    fun openingEditorCreatesDraftStateAndTracksUnsavedChanges() = runTest(dispatcher) {
+        val harness = Harness()
+        val viewModel = harness.viewModel()
+        runCurrent()
+
+        viewModel.onAction(ReaderAction.OpenEditor)
+        val initial = checkNotNull(viewModel.editorUiState.value)
+        assertEquals(CHAPTER_1.id, initial.chapterId)
+        assertEquals(CHAPTER_1_TEXT, initial.draftText)
+        assertFalse(initial.dirty)
+
+        viewModel.onAction(ReaderAction.EditDraft("中文 English"))
+
+        val changed = checkNotNull(viewModel.editorUiState.value)
+        assertEquals("中文 English", changed.draftText)
+        assertTrue(changed.dirty)
+    }
+
+    @Test
+    fun staleEditorCannotSaveOverChapterLoadedAfterNavigation() = runTest(dispatcher) {
+        val harness = Harness()
+        val viewModel = harness.viewModel()
+        runCurrent()
+        viewModel.onAction(ReaderAction.OpenEditor)
+        viewModel.onAction(ReaderAction.EditDraft("第一章尚未保存的草稿"))
+
+        viewModel.onAction(ReaderAction.GoToChapter(CHAPTER_2.id))
+        runCurrent()
+        assertEquals(CHAPTER_2.id, (viewModel.uiState.value as ReaderUiState.Paginating).chapter.id)
+
+        viewModel.onAction(ReaderAction.SaveEdit("第一章尚未保存的草稿"))
+        runCurrent()
+
+        val editorState = checkNotNull(viewModel.editorUiState.value)
+        assertEquals(CHAPTER_1.id, editorState.chapterId)
+        assertEquals("第一章尚未保存的草稿", editorState.draftText)
+        assertEquals("当前章节已切换，请关闭编辑器后重试", editorState.errorMessage)
+        assertTrue(harness.editor.savedChapterIds.isEmpty())
+        assertEquals(CHAPTER_2_TEXT, harness.content.text(CHAPTER_2.id))
+    }
+
+    @Test
+    fun staleEditorCannotUndoChapterLoadedAfterNavigation() = runTest(dispatcher) {
+        val harness = Harness()
+        val viewModel = harness.viewModel()
+        runCurrent()
+        viewModel.onAction(ReaderAction.OpenEditor)
+
+        viewModel.onAction(ReaderAction.GoToChapter(CHAPTER_2.id))
+        runCurrent()
+        viewModel.onAction(ReaderAction.Undo)
+        runCurrent()
+
+        val editorState = checkNotNull(viewModel.editorUiState.value)
+        assertEquals(CHAPTER_1.id, editorState.chapterId)
+        assertEquals("当前章节已切换，请关闭编辑器后重试", editorState.errorMessage)
+        assertTrue(harness.editor.undoneChapterIds.isEmpty())
+    }
+
+    @Test
+    fun chapterNavigationHidesReaderActionsAndRejectsEditorUntilContentLoads() = runTest(dispatcher) {
+        val harness = Harness()
+        val viewModel = harness.viewModel()
+        runCurrent()
+
+        viewModel.onAction(ReaderAction.GoToChapter(CHAPTER_2.id))
+        assertEquals(ReaderUiState.Loading, viewModel.uiState.value)
+        viewModel.onAction(ReaderAction.OpenEditor)
+
+        assertNull(viewModel.editorUiState.value)
+    }
+
+    @Test
+    fun prepareEditorLoadsRouteChapterWhenRestoredPositionPointsElsewhere() = runTest(dispatcher) {
+        val harness = Harness()
+        val viewModel = harness.viewModel()
+        runCurrent()
+        assertEquals(CHAPTER_1.id, (viewModel.uiState.value as ReaderUiState.Paginating).chapter.id)
+        harness.positions.failCheckpoints = true
+
+        viewModel.onAction(ReaderAction.PrepareEditor(CHAPTER_2.id))
+        assertEquals(ReaderUiState.Loading, viewModel.uiState.value)
+        runCurrent()
+        viewModel.onAction(ReaderAction.PrepareEditor(CHAPTER_2.id))
+
+        val editorState = checkNotNull(viewModel.editorUiState.value)
+        assertEquals(CHAPTER_2.id, editorState.chapterId)
+        assertEquals(CHAPTER_2_TEXT, editorState.draftText)
+    }
+
+    @Test
+    fun blankEditorSaveIsRejectedBeforeTransactionStarts() = runTest(dispatcher) {
+        val harness = Harness()
+        val viewModel = harness.viewModel()
+        runCurrent()
+        viewModel.onAction(ReaderAction.OpenEditor)
+        viewModel.onAction(ReaderAction.EditDraft(" \r\n "))
+
+        viewModel.onAction(ReaderAction.SaveEdit(" \r\n "))
+        runCurrent()
+
+        val editorState = checkNotNull(viewModel.editorUiState.value)
+        assertEquals("章节内容不能为空", editorState.errorMessage)
+        assertEquals(" \r\n ", editorState.draftText)
+        assertEquals(0, harness.editor.saveCalls)
+        assertFalse(editorState.isSaving)
+    }
+
+    @Test
+    fun overLimitEditorSaveIsRejectedBeforeTransactionStarts() = runTest(dispatcher) {
+        val harness = Harness()
+        val viewModel = harness.viewModel()
+        runCurrent()
+        viewModel.onAction(ReaderAction.OpenEditor)
+        val tooLarge = "x".repeat(5_000_001)
+
+        viewModel.onAction(ReaderAction.SaveEdit(tooLarge))
+
+        val editorState = checkNotNull(viewModel.editorUiState.value)
+        assertEquals("章节内容不能超过 5000000 个字符", editorState.errorMessage)
+        assertEquals(tooLarge.length, editorState.draftText.length)
+        assertEquals(0, harness.editor.saveCalls)
+        assertFalse(editorState.isSaving)
+    }
+
+    @Test
+    fun fileSaveFailureKeepsDraftAndShowsStorageRecoveryMessage() = runTest(dispatcher) {
+        val harness = Harness()
+        harness.editor.saveFailure = ChapterEditException(ChapterEditFailure.FILE_IO, "injected")
+        val viewModel = harness.viewModel()
+        runCurrent()
+        viewModel.onAction(ReaderAction.OpenEditor)
+        viewModel.onAction(ReaderAction.EditDraft("保留草稿"))
+
+        viewModel.onAction(ReaderAction.SaveEdit("保留草稿"))
+        assertTrue(checkNotNull(viewModel.editorUiState.value).isSaving)
+        runCurrent()
+
+        val editorState = checkNotNull(viewModel.editorUiState.value)
+        assertEquals("保留草稿", editorState.draftText)
+        assertEquals("无法写入章节文件，请检查存储空间后重试", editorState.errorMessage)
+        assertFalse(editorState.isSaving)
+    }
+
+    @Test
+    fun roomSaveFailureKeepsDraftAndShowsDatabaseRecoveryMessage() = runTest(dispatcher) {
+        val harness = Harness()
+        harness.editor.saveFailure = ChapterEditException(ChapterEditFailure.DATABASE, "injected")
+        val viewModel = harness.viewModel()
+        runCurrent()
+        viewModel.onAction(ReaderAction.OpenEditor)
+        viewModel.onAction(ReaderAction.EditDraft("数据库失败草稿"))
+
+        viewModel.onAction(ReaderAction.SaveEdit("数据库失败草稿"))
+        runCurrent()
+
+        val editorState = checkNotNull(viewModel.editorUiState.value)
+        assertEquals("数据库失败草稿", editorState.draftText)
+        assertEquals("无法更新章节数据库，修改未保存，请重试", editorState.errorMessage)
+        assertFalse(editorState.isSaving)
+    }
+
+    @Test
+    fun successfulEditorSavePublishesCompletionAfterContentRefresh() = runTest(dispatcher) {
+        val harness = Harness()
+        val viewModel = harness.viewModel()
+        runCurrent()
+        val originalPaginationKey = checkNotNull(harness.pagination.requests.single().key)
+        viewModel.onAction(ReaderAction.OpenEditor)
+        val edited = "新增中文 and English."
+        viewModel.onAction(ReaderAction.EditDraft(edited))
+
+        viewModel.onAction(ReaderAction.SaveEdit(edited))
+        runCurrent()
+
+        val editorState = checkNotNull(viewModel.editorUiState.value)
+        assertEquals(edited, editorState.originalText)
+        assertEquals(edited, editorState.draftText)
+        assertTrue(editorState.saveCompletedToken > 0)
+        assertTrue(editorState.undoAvailable)
+        assertFalse(editorState.isSaving)
+        val refreshedRequest = harness.pagination.requests.last()
+        assertEquals(edited, refreshedRequest.text)
+        assertEquals(edited.readerTestSha256(), refreshedRequest.key?.contentSha256)
+        assertTrue(originalPaginationKey != refreshedRequest.key)
+    }
+
+    @Test
     fun undoReloadsPreviousContentAndConsumesSnapshot() = runTest(dispatcher) {
         val harness = Harness()
         val viewModel = harness.viewModel()
@@ -435,18 +624,19 @@ class ReaderViewModelTest {
         val requests = mutableListOf<Request>()
 
         override fun paginate(text: String, spec: PaginationSpec): Flow<PaginationBatch> =
-            newRequest(text, spec).batches.receiveAsFlow()
+            newRequest(key = null, text = text, spec = spec).batches.receiveAsFlow()
 
         override fun paginate(
             key: PaginationKey,
             text: String,
             spec: PaginationSpec,
-        ): Flow<PaginationBatch> = newRequest(text, spec).batches.receiveAsFlow()
+        ): Flow<PaginationBatch> = newRequest(key, text, spec).batches.receiveAsFlow()
 
-        private fun newRequest(text: String, spec: PaginationSpec): Request =
-            Request(text, spec).also(requests::add)
+        private fun newRequest(key: PaginationKey?, text: String, spec: PaginationSpec): Request =
+            Request(key, text, spec).also(requests::add)
 
         data class Request(
+            val key: PaginationKey?,
             val text: String,
             val spec: PaginationSpec,
             val batches: Channel<PaginationBatch> = Channel(Channel.UNLIMITED),
@@ -461,12 +651,19 @@ class ReaderViewModelTest {
         private val content: FakeChapterContentRepository,
     ) : ChapterEditor {
         private val snapshots = mutableMapOf<String, String>()
+        var saveFailure: ChapterEditException? = null
+        var saveCalls: Int = 0
+        val savedChapterIds = mutableListOf<String>()
+        val undoneChapterIds = mutableListOf<String>()
 
         override suspend fun save(
             chapterId: String,
             newText: String,
             currentOffset: Int,
         ): ChapterEditResult {
+            saveCalls += 1
+            savedChapterIds += chapterId
+            saveFailure?.let { throw it }
             val oldText = content.text(chapterId)
             snapshots[chapterId] = oldText
             content.update(chapterId, newText)
@@ -474,6 +671,7 @@ class ReaderViewModelTest {
         }
 
         override suspend fun undo(chapterId: String, currentOffset: Int): ChapterEditResult? {
+            undoneChapterIds += chapterId
             val restored = snapshots.remove(chapterId) ?: return null
             val oldText = content.text(chapterId)
             content.update(chapterId, restored)

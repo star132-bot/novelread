@@ -24,6 +24,12 @@ sealed interface ReaderAction {
 
     data object OpenEditor : ReaderAction
 
+    data class PrepareEditor(val chapterId: String) : ReaderAction
+
+    data class EditDraft(val text: String) : ReaderAction
+
+    data object CloseEditor : ReaderAction
+
     data class SaveEdit(val text: String) : ReaderAction
 
     data object Undo : ReaderAction

@@ -11,6 +11,7 @@ import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeLeft
@@ -43,6 +44,17 @@ class ReaderScreenTest {
         assertTrue(ReaderAction.NextPage in actions)
         assertTrue(ReaderAction.PreviousChapter in actions)
         assertTrue(ReaderAction.NextChapter in actions)
+    }
+
+    @Test
+    fun chapterListOpensAndDispatchesStableChapterId() {
+        val actions = mutableListOf<ReaderAction>()
+        launch(state = ready(chapterIndex = 0, chapterCount = 3), actions = actions)
+
+        composeRule.onNodeWithContentDescription("章节目录").performClick()
+        composeRule.onNodeWithText("Chapter 2").performClick()
+
+        assertTrue(ReaderAction.GoToChapter("chapter-1") in actions)
     }
 
     @Test

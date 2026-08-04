@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.CreationExtras
 import com.mkread.app.core.database.BookEntity
 import com.mkread.app.core.database.ChapterEntity
+import com.mkread.app.core.files.ImportLimits
 import java.util.concurrent.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
@@ -38,6 +39,7 @@ class ReaderViewModel(
         "Reader requires a book id"
     }
     private val mutableUiState = MutableStateFlow<ReaderUiState>(ReaderUiState.Loading)
+    private val mutableEditorUiState = MutableStateFlow<ChapterEditorUiState?>(null)
     private val eventChannel = Channel<ReaderEvent>(Channel.BUFFERED)
 
     private var book: BookEntity? = null
@@ -56,8 +58,10 @@ class ReaderViewModel(
     private var loadJob: Job? = null
     private var paginationJob: Job? = null
     private var paginationRequestId = 0L
+    private var pendingChapterId: String? = null
 
     val uiState: StateFlow<ReaderUiState> = mutableUiState.asStateFlow()
+    val editorUiState: StateFlow<ChapterEditorUiState?> = mutableEditorUiState.asStateFlow()
     val events: Flow<ReaderEvent> = eventChannel.receiveAsFlow()
 
     init {
@@ -85,6 +89,9 @@ class ReaderViewModel(
             }
             ReaderAction.ReadFromSelection -> readFromSelection()
             ReaderAction.OpenEditor -> openEditor()
+            is ReaderAction.PrepareEditor -> prepareEditor(action.chapterId)
+            is ReaderAction.EditDraft -> updateEditorDraft(action.text)
+            ReaderAction.CloseEditor -> mutableEditorUiState.value = null
             is ReaderAction.SaveEdit -> saveEdit(action.text)
             ReaderAction.Undo -> undoEdit()
             is ReaderAction.LayoutChanged -> updateLayout(action.spec)
@@ -221,8 +228,12 @@ class ReaderViewModel(
 
     private fun navigateChapter(targetIndex: Int, targetOffset: Int) {
         if (targetIndex !in chapters.indices || targetIndex == chapterIndex) return
+        val targetChapterId = chapters[targetIndex].id
+        if (pendingChapterId == targetChapterId) return
         loadJob?.cancel()
         stopPagination()
+        pendingChapterId = targetChapterId
+        mutableUiState.value = ReaderUiState.Loading
         loadJob = viewModelScope.launch {
             try {
                 checkpointCurrentSafely()
@@ -231,6 +242,8 @@ class ReaderViewModel(
                 throw failure
             } catch (failure: Exception) {
                 showError(true, failure.message ?: "Unable to open chapter")
+            } finally {
+                if (pendingChapterId == targetChapterId) pendingChapterId = null
             }
         }
     }
@@ -259,7 +272,9 @@ class ReaderViewModel(
     }
 
     private fun openEditor() {
+        if (pendingChapterId != null) return
         val loadedContent = content ?: return
+        mutableEditorUiState.value = createEditorState(loadedContent)
         eventChannel.trySend(
             ReaderEvent.OpenEditor(
                 chapterId = loadedContent.chapter.id,
@@ -269,22 +284,98 @@ class ReaderViewModel(
         )
     }
 
+    private fun prepareEditor(chapterId: String) {
+        val loadedContent = content ?: return
+        if (loadedContent.chapter.id == chapterId) {
+            if (mutableEditorUiState.value?.chapterId != chapterId) {
+                mutableEditorUiState.value = createEditorState(loadedContent)
+            }
+            return
+        }
+        val requestedIndex = chapters.indexOfFirst { it.id == chapterId }
+        if (requestedIndex >= 0 && pendingChapterId != chapterId) {
+            navigateChapter(requestedIndex, 0)
+        }
+    }
+
+    private fun updateEditorDraft(text: String) {
+        mutableEditorUiState.value = mutableEditorUiState.value?.copy(
+            draftText = text,
+            errorMessage = null,
+        )
+    }
+
     private fun saveEdit(text: String) {
         val loadedContent = content ?: return
+        val editorState = mutableEditorUiState.value
+        if (editorState != null && editorState.chapterId != loadedContent.chapter.id) {
+            mutableEditorUiState.value = editorState.copy(
+                draftText = text,
+                isSaving = false,
+                errorMessage = EDITOR_CHAPTER_CHANGED_MESSAGE,
+            )
+            return
+        }
+        val targetChapterId = editorState?.chapterId ?: loadedContent.chapter.id
+        val normalizedText = text.normalizeEditorLineEndings()
+        val validationMessage = when {
+            normalizedText.isBlank() -> "章节内容不能为空"
+            normalizedText.length > ImportLimits.CHAPTER_CHARACTERS ->
+                "章节内容不能超过 ${ImportLimits.CHAPTER_CHARACTERS} 个字符"
+            else -> null
+        }
+        if (validationMessage != null) {
+            mutableEditorUiState.value = mutableEditorUiState.value?.copy(
+                draftText = text,
+                isSaving = false,
+                errorMessage = validationMessage,
+            )
+            if (mutableEditorUiState.value == null) {
+                eventChannel.trySend(ReaderEvent.ShowMessage(validationMessage))
+            }
+            return
+        }
+        mutableEditorUiState.value = mutableEditorUiState.value?.copy(
+            draftText = text,
+            isSaving = true,
+            errorMessage = null,
+        )
         loadJob?.cancel()
         stopPagination()
         loadJob = viewModelScope.launch {
             try {
                 val result = chapterEditor.save(
-                    chapterId = loadedContent.chapter.id,
-                    newText = text,
+                    chapterId = targetChapterId,
+                    newText = normalizedText,
                     currentOffset = characterOffset,
                 )
                 refreshCurrentChapter(result.mappedOffset)
+                val refreshed = content
+                mutableEditorUiState.value = mutableEditorUiState.value
+                    ?.takeIf { it.chapterId == refreshed?.chapter?.id }
+                    ?.let { editor ->
+                        editor.copy(
+                            title = refreshed?.chapter?.title ?: editor.title,
+                            originalText = refreshed?.text ?: normalizedText,
+                            draftText = refreshed?.text ?: normalizedText,
+                            undoAvailable = undoAvailable,
+                            isSaving = false,
+                            errorMessage = null,
+                            saveCompletedToken = editor.saveCompletedToken + 1,
+                        )
+                    }
             } catch (failure: CancellationException) {
                 throw failure
             } catch (failure: Exception) {
-                eventChannel.trySend(ReaderEvent.ShowMessage(failure.message ?: "Unable to save chapter"))
+                val message = failure.toEditorMessage(saving = true)
+                mutableEditorUiState.value = mutableEditorUiState.value?.copy(
+                    draftText = text,
+                    isSaving = false,
+                    errorMessage = message,
+                )
+                if (mutableEditorUiState.value == null) {
+                    eventChannel.trySend(ReaderEvent.ShowMessage(message))
+                }
                 renderLoaded()
             }
         }
@@ -292,24 +383,89 @@ class ReaderViewModel(
 
     private fun undoEdit() {
         val loadedContent = content ?: return
+        val editorState = mutableEditorUiState.value
+        if (editorState != null && editorState.chapterId != loadedContent.chapter.id) {
+            mutableEditorUiState.value = editorState.copy(
+                isUndoing = false,
+                errorMessage = EDITOR_CHAPTER_CHANGED_MESSAGE,
+            )
+            return
+        }
+        val targetChapterId = editorState?.chapterId ?: loadedContent.chapter.id
+        if (editorState?.dirty == true) {
+            mutableEditorUiState.value = editorState.copy(
+                errorMessage = "请先保存或放弃当前修改，再撤销上次保存",
+            )
+            return
+        }
+        mutableEditorUiState.value = editorState?.copy(
+            isUndoing = true,
+            errorMessage = null,
+        )
         loadJob?.cancel()
         stopPagination()
         loadJob = viewModelScope.launch {
             try {
-                val result = chapterEditor.undo(loadedContent.chapter.id, characterOffset)
+                val result = chapterEditor.undo(targetChapterId, characterOffset)
                 if (result == null) {
                     undoAvailable = false
+                    mutableEditorUiState.value = mutableEditorUiState.value?.copy(
+                        undoAvailable = false,
+                        isUndoing = false,
+                    )
                     renderLoaded()
                 } else {
                     refreshCurrentChapter(result.mappedOffset)
+                    val refreshed = content
+                    mutableEditorUiState.value = mutableEditorUiState.value
+                        ?.takeIf { it.chapterId == refreshed?.chapter?.id }
+                        ?.let { editor ->
+                            editor.copy(
+                                title = refreshed?.chapter?.title ?: editor.title,
+                                originalText = refreshed?.text ?: editor.originalText,
+                                draftText = refreshed?.text ?: editor.draftText,
+                                undoAvailable = undoAvailable,
+                                isUndoing = false,
+                                errorMessage = null,
+                            )
+                        }
                 }
             } catch (failure: CancellationException) {
                 throw failure
             } catch (failure: Exception) {
-                eventChannel.trySend(ReaderEvent.ShowMessage(failure.message ?: "Unable to undo edit"))
+                val message = failure.toEditorMessage(saving = false)
+                mutableEditorUiState.value = mutableEditorUiState.value?.copy(
+                    isUndoing = false,
+                    errorMessage = message,
+                )
+                if (mutableEditorUiState.value == null) {
+                    eventChannel.trySend(ReaderEvent.ShowMessage(message))
+                }
                 renderLoaded()
             }
         }
+    }
+
+    private fun createEditorState(loadedContent: ChapterContent) = ChapterEditorUiState(
+        chapterId = loadedContent.chapter.id,
+        title = loadedContent.chapter.title,
+        originalText = loadedContent.text,
+        draftText = loadedContent.text,
+        undoAvailable = undoAvailable,
+    )
+
+    private fun Throwable.toEditorMessage(saving: Boolean): String = when (
+        (this as? ChapterEditException)?.failure
+    ) {
+        ChapterEditFailure.BLANK_CHAPTER -> "章节内容不能为空"
+        ChapterEditFailure.TOO_LARGE -> "章节内容不能超过 ${ImportLimits.CHAPTER_CHARACTERS} 个字符"
+        ChapterEditFailure.DATABASE -> "无法更新章节数据库，修改未保存，请重试"
+        ChapterEditFailure.FILE_IO -> "无法写入章节文件，请检查存储空间后重试"
+        ChapterEditFailure.CORRUPT_CURRENT -> "章节文件校验失败，请重新导入小说后再编辑"
+        ChapterEditFailure.NOT_FOUND -> "找不到当前章节，请返回书架后重新打开"
+        ChapterEditFailure.UNSAFE_PATH -> "章节存储路径无效，已阻止修改"
+        ChapterEditFailure.CLEANUP_MARKER -> "章节已写入，但缓存清理失败，请重新打开小说"
+        null -> if (saving) "保存章节失败，请重试" else "撤销章节修改失败，请重试"
     }
 
     private suspend fun refreshCurrentChapter(mappedOffset: Int) {
@@ -425,6 +581,10 @@ class ReaderViewModel(
         const val BOOK_ID_KEY = "bookId"
     }
 }
+
+private fun String.normalizeEditorLineEndings(): String = replace("\r\n", "\n").replace('\r', '\n')
+
+private const val EDITOR_CHAPTER_CHANGED_MESSAGE = "当前章节已切换，请关闭编辑器后重试"
 
 class ReaderViewModelFactory(
     private val bookId: String,

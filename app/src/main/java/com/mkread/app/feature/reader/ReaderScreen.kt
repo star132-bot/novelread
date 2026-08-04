@@ -10,6 +10,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.FormatListBulleted
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -82,6 +83,7 @@ fun ReaderScreen(
 ) {
     val loaded = state as? ReaderUiState.Loaded
     var menuExpanded by remember { mutableStateOf(false) }
+    var chapterListVisible by remember { mutableStateOf(false) }
     Scaffold(
         modifier = modifier.fillMaxSize(),
         contentWindowInsets = WindowInsets.safeDrawing,
@@ -106,6 +108,12 @@ fun ReaderScreen(
                 },
                 actions = {
                     if (loaded != null) {
+                        IconButton(onClick = { chapterListVisible = true }) {
+                            Icon(
+                                Icons.AutoMirrored.Outlined.FormatListBulleted,
+                                contentDescription = stringResource(R.string.chapter_list_title),
+                            )
+                        }
                         Box {
                             IconButton(onClick = { menuExpanded = true }) {
                                 Icon(
@@ -162,6 +170,17 @@ fun ReaderScreen(
                 )
             }
         }
+    }
+    if (chapterListVisible && loaded != null) {
+        ChapterListSheet(
+            chapters = loaded.chapters,
+            currentChapterId = loaded.chapter.id,
+            onSelectChapter = { chapterId ->
+                chapterListVisible = false
+                onAction(ReaderAction.GoToChapter(chapterId))
+            },
+            onDismiss = { chapterListVisible = false },
+        )
     }
 }
 

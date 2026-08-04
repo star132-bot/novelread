@@ -23,4 +23,17 @@
     <string name="source_file_retained">原始小说文件会保留</string>
     <string name="debug_speech">离线语音验证</string>
     <string name="importing_book">正在导入小说</string>
+    <string name="reader_edit_chapter">编辑章节</string>
+    <string name="reader_read_from_here">从这里朗读</string>
+    <string name="reader_back">返回</string>
+    <string name="reader_more">阅读选项</string>
+    <string name="reader_previous_page">上一页</string>
+    <string name="reader_next_page">下一页</string>
+    <string name="reader_previous_chapter">上一章</string>
+    <string name="reader_next_chapter">下一章</string>
+    <string name="reader_page_count">%1$d / %2$d</string>
+    <string name="reader_page_count_empty">-- / --</string>
+    <string name="reader_preparing">正在准备页面</string>
+    <string name="reader_retry">重试</string>
+    <string name="reader_copied">已复制</string>
 </resources>

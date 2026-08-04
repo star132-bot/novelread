@@ -30,6 +30,7 @@ sealed interface ReaderUiState {
         val activeSentenceRange: SentenceRange?
         val paginationComplete: Boolean
         val undoAvailable: Boolean
+        val paginationSpec: PaginationSpec
     }
 
     data class Paginating(
@@ -45,6 +46,7 @@ sealed interface ReaderUiState {
         override val selectedRange: ReaderTextRange?,
         override val activeSentenceRange: SentenceRange?,
         override val undoAvailable: Boolean,
+        override val paginationSpec: PaginationSpec,
     ) : Loaded {
         override val pages: List<PageRange> = firstPages
         override val paginationComplete: Boolean = false
@@ -64,6 +66,7 @@ sealed interface ReaderUiState {
         override val activeSentenceRange: SentenceRange?,
         override val paginationComplete: Boolean,
         override val undoAvailable: Boolean,
+        override val paginationSpec: PaginationSpec,
     ) : Loaded {
         override val pages: List<PageRange> = pageRanges
     }

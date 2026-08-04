@@ -1,16 +1,9 @@
 package com.mkread.app.navigation
 
 import android.net.Uri
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.Alignment
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -22,7 +15,7 @@ import com.mkread.app.BuildConfig
 import com.mkread.app.feature.library.LibraryRoute
 import com.mkread.app.feature.library.LibraryViewModel
 import com.mkread.app.feature.library.LibraryViewModelFactory
-import com.mkread.app.feature.reader.ReaderUiState
+import com.mkread.app.feature.reader.ReaderRoute
 import com.mkread.app.feature.reader.ReaderViewModel
 import com.mkread.app.feature.reader.ReaderViewModelFactory
 import com.mkread.app.speech.SpikeScreen
@@ -77,28 +70,16 @@ fun MkreadNavHost(
                 )
             }
             val readerViewModel: ReaderViewModel = viewModel(factory = factory)
-            ReaderStatePlaceholder(readerViewModel)
+            ReaderRoute(
+                viewModel = readerViewModel,
+                onBack = navController::popBackStack,
+                onOpenEditor = {},
+            )
         }
         if (BuildConfig.DEBUG) {
             composable(SPEECH_DEBUG_ROUTE) {
                 SpikeScreen()
             }
-        }
-    }
-}
-
-@Composable
-private fun ReaderStatePlaceholder(viewModel: ReaderViewModel) {
-    val state by viewModel.uiState.collectAsState()
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center,
-    ) {
-        when (val current = state) {
-            ReaderUiState.Loading -> CircularProgressIndicator()
-            is ReaderUiState.Error -> Text(current.message)
-            is ReaderUiState.Paginating -> Text(current.chapter.title)
-            is ReaderUiState.Ready -> Text(current.chapter.title)
         }
     }
 }

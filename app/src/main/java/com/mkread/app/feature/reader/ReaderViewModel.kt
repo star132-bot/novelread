@@ -382,6 +382,7 @@ class ReaderViewModel(
                 activeSentenceRange = activeSentenceRange,
                 paginationComplete = true,
                 undoAvailable = undoAvailable,
+                paginationSpec = paginationSpec,
             )
         } else {
             ReaderUiState.Paginating(
@@ -397,6 +398,7 @@ class ReaderViewModel(
                 selectedRange = selectedRange,
                 activeSentenceRange = activeSentenceRange,
                 undoAvailable = undoAvailable,
+                paginationSpec = paginationSpec,
             )
         }
     }

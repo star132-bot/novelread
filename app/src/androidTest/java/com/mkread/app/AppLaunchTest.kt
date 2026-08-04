@@ -19,6 +19,6 @@ class AppLaunchTest {
         composeRule.onNodeWithText("MKread").assertIsDisplayed()
         composeRule.onNodeWithText("书架中还没有小说").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("搜索").assertIsDisplayed()
-        composeRule.onNodeWithContentDescription("导入小说").assertIsDisplayed()
+        composeRule.onNodeWithText("导入小说").assertIsDisplayed()
     }
 }

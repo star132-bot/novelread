@@ -6,15 +6,42 @@ import androidx.work.BackoffPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequest
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.transform
+
+internal enum class ImportWorkStatus {
+    ENQUEUED,
+    RUNNING,
+    SUCCESS,
+    DUPLICATE,
+    FAILED,
+    CANCELLED,
+}
+
+internal data class ImportWorkRecord(
+    val id: UUID,
+    val status: ImportWorkStatus,
+    val bookId: String? = null,
+    val message: String? = null,
+)
 
 class BookImportScheduler internal constructor(
     private val workEnqueuer: WorkEnqueuer,
     private val documentAccess: DocumentAccess,
-) {
+    workRecords: Flow<List<ImportWorkRecord>> = emptyFlow(),
+) : BookImportManager {
+    private val observationLock = Any()
+    private val knownWorkIds = mutableSetOf<UUID>()
+    private var observedInitialSnapshot = false
+
     constructor(
         workManager: WorkManager,
         documentAccess: DocumentAccess,
@@ -23,9 +50,46 @@ class BookImportScheduler internal constructor(
             workManager.enqueueUniqueWork(name, policy, request)
         },
         documentAccess = documentAccess,
+        workRecords = workManager.getWorkInfosByTagFlow(IMPORT_TAG)
+            .map { workInfos -> workInfos.map(WorkInfo::toImportWorkRecord) },
     )
 
     val documentContract = ActivityResultContracts.OpenDocument()
+
+    override val updates: Flow<ImportWorkUpdate> = workRecords
+        .transform { records ->
+            val emissions = synchronized(observationLock) {
+                if (!observedInitialSnapshot) {
+                    knownWorkIds += records
+                        .filter { record -> record.status.isActive() }
+                        .map(ImportWorkRecord::id)
+                    observedInitialSnapshot = true
+                }
+                val relevant = records.filter { record -> record.id in knownWorkIds }
+                val terminal = relevant.filterNot { record -> record.status.isActive() }
+                terminal.forEach { record -> knownWorkIds.remove(record.id) }
+                buildList {
+                    terminal
+                        .sortedBy { record -> record.id.toString() }
+                        .forEach { record -> add(record.toUpdate()) }
+                    val active = relevant
+                        .filter { record -> record.status.isActive() }
+                        .minByOrNull { record -> record.id.toString() }
+                    if (active != null) {
+                        add(ImportWorkUpdate.Running(active.id))
+                    } else if (terminal.isEmpty()) {
+                        add(ImportWorkUpdate.Idle)
+                    }
+                }
+            }
+            emissions.forEach { update -> emit(update) }
+        }
+        .distinctUntilChanged()
+
+    override fun enqueue(uri: Uri): UUID {
+        val document = documentAccess.describe(uri)
+        return enqueue(uri, document.displayName, document.mimeType)
+    }
 
     fun enqueue(
         uri: Uri,
@@ -52,6 +116,9 @@ class BookImportScheduler internal constructor(
             )
             .addTag(IMPORT_TAG)
             .build()
+        synchronized(observationLock) {
+            knownWorkIds += request.id
+        }
         try {
             workEnqueuer.enqueue(
                 uniqueWorkName(uri, normalizedName),
@@ -59,6 +126,9 @@ class BookImportScheduler internal constructor(
                 request,
             )
         } catch (failure: RuntimeException) {
+            synchronized(observationLock) {
+                knownWorkIds.remove(request.id)
+            }
             if (permissionPersisted) {
                 runCatching { documentAccess.releasePersistableReadPermission(uri) }
             }
@@ -90,4 +160,39 @@ class BookImportScheduler internal constructor(
             request: OneTimeWorkRequest,
         )
     }
+}
+
+private fun ImportWorkStatus.isActive(): Boolean =
+    this == ImportWorkStatus.ENQUEUED || this == ImportWorkStatus.RUNNING
+
+private fun ImportWorkRecord.toUpdate(): ImportWorkUpdate = when (status) {
+    ImportWorkStatus.SUCCESS -> bookId?.let { ImportWorkUpdate.Success(id, it) }
+        ?: ImportWorkUpdate.Failure(id, "导入结果不完整，请重新导入")
+    ImportWorkStatus.DUPLICATE -> ImportWorkUpdate.Duplicate(id, bookId)
+    ImportWorkStatus.FAILED -> ImportWorkUpdate.Failure(id, message ?: "导入失败")
+    ImportWorkStatus.CANCELLED -> ImportWorkUpdate.Failure(id, "导入已取消")
+    ImportWorkStatus.ENQUEUED,
+    ImportWorkStatus.RUNNING,
+    -> ImportWorkUpdate.Running(id)
+}
+
+private fun WorkInfo.toImportWorkRecord(): ImportWorkRecord {
+    val status = when (state) {
+        WorkInfo.State.ENQUEUED,
+        WorkInfo.State.BLOCKED,
+        -> ImportWorkStatus.ENQUEUED
+        WorkInfo.State.RUNNING -> ImportWorkStatus.RUNNING
+        WorkInfo.State.SUCCEEDED -> when (outputData.getString(ImportBookWorker.KEY_STATUS)) {
+            ImportBookWorker.STATUS_DUPLICATE -> ImportWorkStatus.DUPLICATE
+            else -> ImportWorkStatus.SUCCESS
+        }
+        WorkInfo.State.FAILED -> ImportWorkStatus.FAILED
+        WorkInfo.State.CANCELLED -> ImportWorkStatus.CANCELLED
+    }
+    return ImportWorkRecord(
+        id = id,
+        status = status,
+        bookId = outputData.getString(ImportBookWorker.KEY_BOOK_ID),
+        message = outputData.getString(ImportBookWorker.KEY_USER_MESSAGE),
+    )
 }

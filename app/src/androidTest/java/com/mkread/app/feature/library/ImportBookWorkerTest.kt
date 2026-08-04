@@ -18,6 +18,11 @@ import java.io.InputStream
 import java.util.UUID
 import java.util.concurrent.CancellationException
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -230,6 +235,102 @@ class ImportBookWorkerTest {
         assertEquals(1, access.releaseCount)
     }
 
+    @Test
+    fun scheduler_enqueueFromPicker_usesDocumentMetadata() {
+        val access = RecordingDocumentAccess(
+            openStream = { "正文".byteInputStream() },
+            documentInfo = DocumentInfo("选择的小说.epub", "application/epub+zip"),
+        )
+        var capturedRequest: OneTimeWorkRequest? = null
+        val scheduler = BookImportScheduler(
+            workEnqueuer = BookImportScheduler.WorkEnqueuer { _, _, request ->
+                capturedRequest = request
+            },
+            documentAccess = access,
+        )
+
+        scheduler.enqueue(Uri.parse("content://documents/book/metadata"))
+
+        assertEquals(
+            "选择的小说.epub",
+            capturedRequest!!.workSpec.input.getString(ImportBookWorker.KEY_DISPLAY_NAME),
+        )
+        assertEquals(
+            "application/epub+zip",
+            capturedRequest!!.workSpec.input.getString(ImportBookWorker.KEY_MIME_TYPE),
+        )
+    }
+
+    @Test
+    fun scheduler_reportsRunningThenDuplicate_forWorkEnqueuedInThisProcess() = runBlocking {
+        val records = MutableSharedFlow<List<ImportWorkRecord>>(extraBufferCapacity = 4)
+        val scheduler = BookImportScheduler(
+            workEnqueuer = BookImportScheduler.WorkEnqueuer { _, _, _ -> Unit },
+            documentAccess = RecordingDocumentAccess(
+                openStream = { "正文".byteInputStream() },
+            ),
+            workRecords = records,
+        )
+        val workId = scheduler.enqueue(
+            Uri.parse("content://documents/book/progress"),
+            "progress.txt",
+            "text/plain",
+        )
+        val observed = mutableListOf<ImportWorkUpdate>()
+        val collection = launch(start = CoroutineStart.UNDISPATCHED) {
+            scheduler.updates.take(2).toList(observed)
+        }
+
+        records.emit(listOf(ImportWorkRecord(workId, ImportWorkStatus.RUNNING)))
+        records.emit(
+            listOf(
+                ImportWorkRecord(
+                    id = workId,
+                    status = ImportWorkStatus.DUPLICATE,
+                    bookId = "existing-book",
+                ),
+            ),
+        )
+        collection.join()
+
+        assertEquals(
+            listOf(
+                ImportWorkUpdate.Running(workId),
+                ImportWorkUpdate.Duplicate(workId, "existing-book"),
+            ),
+            observed,
+        )
+    }
+
+    @Test
+    fun scheduler_mapsIncompleteSuccessToFailure() = runBlocking {
+        val records = MutableSharedFlow<List<ImportWorkRecord>>(extraBufferCapacity = 1)
+        val scheduler = BookImportScheduler(
+            workEnqueuer = BookImportScheduler.WorkEnqueuer { _, _, _ -> Unit },
+            documentAccess = RecordingDocumentAccess(
+                openStream = { "正文".byteInputStream() },
+            ),
+            workRecords = records,
+        )
+        val workId = scheduler.enqueue(
+            Uri.parse("content://documents/book/incomplete"),
+            "incomplete.txt",
+            "text/plain",
+        )
+        val observed = mutableListOf<ImportWorkUpdate>()
+        val collection = launch(start = CoroutineStart.UNDISPATCHED) {
+            scheduler.updates.take(1).toList(observed)
+        }
+
+        records.emit(listOf(ImportWorkRecord(workId, ImportWorkStatus.SUCCESS)))
+        collection.join()
+
+        assertEquals(
+            listOf(ImportWorkUpdate.Failure(workId, "导入结果不完整，请重新导入")),
+            observed,
+        )
+    }
+
     private fun harness(documentAccess: DocumentAccess = AndroidDocumentAccess(context)): Harness {
         val root = File(context.cacheDir, "worker-test-${UUID.randomUUID()}").apply { mkdirs() }
         roots += root
@@ -311,11 +412,14 @@ class ImportBookWorkerTest {
     private class RecordingDocumentAccess(
         private val openStream: () -> InputStream,
         private val events: MutableList<String>? = null,
+        private val documentInfo: DocumentInfo = DocumentInfo("novel.txt", "text/plain"),
     ) : DocumentAccess {
         var takeCount = 0
         var releaseCount = 0
 
         override fun openInputStream(uri: Uri): InputStream = openStream()
+
+        override fun describe(uri: Uri): DocumentInfo = documentInfo
 
         override fun takePersistableReadPermission(uri: Uri): Boolean {
             events?.add("take")

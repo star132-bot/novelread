@@ -2,6 +2,7 @@ package com.mkread.app
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Rule
@@ -14,8 +15,10 @@ class AppLaunchTest {
     val composeRule = createAndroidComposeRule<MainActivity>()
 
     @Test
-    fun debugSpeechScreen_isDisplayed() {
-        composeRule.onNodeWithText("MKread 离线语音验证").assertIsDisplayed()
-        composeRule.onNodeWithText("生成并试听").assertIsDisplayed()
+    fun bookshelfIsTheAppStartDestination() {
+        composeRule.onNodeWithText("MKread").assertIsDisplayed()
+        composeRule.onNodeWithText("书架中还没有小说").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("搜索").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("导入小说").assertIsDisplayed()
     }
 }

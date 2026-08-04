@@ -4,6 +4,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -19,6 +20,8 @@ class SpikeScreenTest {
 
     @Test
     fun debugScreen_generatesSpeechAndEnablesReplay() {
+        composeRule.onNodeWithContentDescription("更多选项").performClick()
+        composeRule.onNodeWithText("离线语音验证").performClick()
         composeRule.onNodeWithText(SMOKE_SENTENCE).assertIsDisplayed()
         composeRule.onNodeWithText("生成并试听").performClick()
 

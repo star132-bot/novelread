@@ -54,6 +54,9 @@ abstract class BookDao {
     @Query("UPDATE books SET last_opened_at = :openedAt WHERE id = :bookId")
     abstract suspend fun updateLastOpened(bookId: String, openedAt: Long): Int
 
+    @Query("UPDATE books SET modified_at = :modifiedAt WHERE id = :bookId")
+    abstract suspend fun updateModifiedAt(bookId: String, modifiedAt: Long): Int
+
     @Query("DELETE FROM books WHERE id = :bookId")
     abstract suspend fun deleteById(bookId: String): Int
 

@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">MKread</string>
+    <string name="playback_notification_channel_name">小说朗读</string>
     <string name="library_empty">书架中还没有小说</string>
     <string name="library_no_results">没有找到匹配的小说</string>
     <string name="import_book">导入小说</string>

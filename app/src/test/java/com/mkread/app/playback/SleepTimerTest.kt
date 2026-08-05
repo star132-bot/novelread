@@ -76,13 +76,39 @@ class SleepTimerTest {
     }
 
     @Test
+    fun rebootCancelsEvenWhenNewUptimeExceedsOldDeadline() {
+        clock.sessionId = "boot-before"
+        val scheduled = timer.schedule(SleepTimerPreset.MINUTES_10)
+        clock.sessionId = "boot-after"
+        clock.nowMillis = scheduled.deadlineElapsedMillis!! + 60_000L
+
+        assertEquals(
+            SleepTimerDecision.CancelledAfterClockReset,
+            timer.evaluate(scheduled, sentenceActive = true),
+        )
+    }
+
+    @Test
+    fun sentenceEndAtExpiredDeadlineStopsWithoutPriorTimerEvaluation() {
+        val scheduled = timer.schedule(SleepTimerPreset.MINUTES_20)
+        clock.nowMillis = scheduled.deadlineElapsedMillis!! + 5 * 60_000L
+
+        assertEquals(SleepTimerDecision.StopNow, timer.onSentenceEnded(scheduled))
+    }
+
+    @Test
     fun sentenceEndDoesNothingBeforeExpiryWasMarked() {
         val scheduled = timer.schedule(SleepTimerPreset.MINUTES_60)
 
         assertEquals(SleepTimerDecision.Inactive, timer.onSentenceEnded(scheduled))
     }
 
-    private class FakeMonotonicClock(var nowMillis: Long) : MonotonicClock {
+    private class FakeMonotonicClock(
+        var nowMillis: Long,
+        var sessionId: String = "boot-1",
+    ) : MonotonicClock {
         override fun nowMillis(): Long = nowMillis
+
+        override fun sessionId(): String = sessionId
     }
 }

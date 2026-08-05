@@ -2,6 +2,8 @@ package com.mkread.app.playback
 
 fun interface MonotonicClock {
     fun nowMillis(): Long
+
+    fun sessionId(): String? = null
 }
 
 enum class SleepTimerPreset(
@@ -20,6 +22,7 @@ data class SleepTimerState(
     val scheduledAtElapsedMillis: Long?,
     val deadlineElapsedMillis: Long?,
     val stopAfterCurrentSentence: Boolean = false,
+    val clockSessionId: String? = null,
 ) {
     init {
         require((scheduledAtElapsedMillis == null) == (deadlineElapsedMillis == null)) {
@@ -32,6 +35,10 @@ data class SleepTimerState(
             }
         } else {
             require(!stopAfterCurrentSentence) { "An inactive timer cannot defer a stop" }
+            require(clockSessionId == null) { "An inactive timer cannot retain a clock session" }
+        }
+        require(clockSessionId == null || clockSessionId.isNotBlank()) {
+            "Clock session id must not be blank"
         }
     }
 
@@ -79,6 +86,7 @@ class SleepTimer(
         return SleepTimerState(
             scheduledAtElapsedMillis = now,
             deadlineElapsedMillis = Math.addExact(now, duration),
+            clockSessionId = clock.sessionId(),
         )
     }
 
@@ -97,6 +105,9 @@ class SleepTimer(
         val scheduledAt = requireNotNull(state.scheduledAtElapsedMillis)
         val deadline = requireNotNull(state.deadlineElapsedMillis)
         val now = clock.nowMillis()
+        if (state.clockSessionId != null && state.clockSessionId != clock.sessionId()) {
+            return SleepTimerDecision.CancelledAfterClockReset
+        }
         if (now < scheduledAt) return SleepTimerDecision.CancelledAfterClockReset
         if (state.stopAfterCurrentSentence) {
             return if (sentenceActive) {
@@ -117,12 +128,15 @@ class SleepTimer(
         }
     }
 
-    fun onSentenceEnded(state: SleepTimerState): SleepTimerDecision =
-        if (state.stopAfterCurrentSentence) {
-            SleepTimerDecision.StopNow
-        } else {
-            SleepTimerDecision.Inactive
+    fun onSentenceEnded(state: SleepTimerState): SleepTimerDecision {
+        if (state.stopAfterCurrentSentence) return SleepTimerDecision.StopNow
+        return when (val decision = evaluate(state, sentenceActive = false)) {
+            is SleepTimerDecision.Active,
+            SleepTimerDecision.Inactive,
+            -> SleepTimerDecision.Inactive
+            else -> decision
         }
+    }
 }
 
 private const val MILLIS_PER_MINUTE = 60_000L

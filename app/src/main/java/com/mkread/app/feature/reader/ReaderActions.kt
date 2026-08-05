@@ -39,6 +39,8 @@ sealed interface ReaderAction {
     data object Retry : ReaderAction
 
     data object Checkpoint : ReaderAction
+
+    data object Exit : ReaderAction
 }
 
 sealed interface ReaderEvent {
@@ -54,4 +56,6 @@ sealed interface ReaderEvent {
     ) : ReaderEvent
 
     data class ShowMessage(val message: String) : ReaderEvent
+
+    data object CloseReader : ReaderEvent
 }

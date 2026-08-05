@@ -1,5 +1,6 @@
 # Android and Gradle
 .gradle/
+.kotlin/
 .idea/
 local.properties
 .local-assets/
@@ -10,6 +11,8 @@ build/
 **/build/
 *.iml
 *.hprof
+__pycache__/
+*.py[cod]
 
 # Local Android tooling
 .android-sdk/

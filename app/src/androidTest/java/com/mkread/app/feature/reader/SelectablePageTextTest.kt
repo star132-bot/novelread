@@ -2,17 +2,21 @@ package com.mkread.app.feature.reader
 
 import android.content.ClipboardManager
 import android.content.Context
+import android.app.Activity
 import android.text.Spanned
 import android.text.style.BackgroundColorSpan
 import android.os.SystemClock
 import android.view.MotionEvent
+import android.view.View
+import android.view.ViewGroup
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.core.app.ApplicationProvider
-import androidx.test.espresso.Espresso.onView
-import androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
+import androidx.test.runner.lifecycle.Stage
 import com.mkread.app.ui.theme.MkreadTheme
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
@@ -74,7 +78,16 @@ class SelectablePageTextTest {
             harness.view.performReaderContextAction(android.R.id.copy)
         }
 
-        assertEquals("only", clipboard.primaryClip?.getItemAt(0)?.coerceToText(harness.view.context).toString())
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        automation.adoptShellPermissionIdentity(READ_CLIPBOARD_IN_BACKGROUND)
+        try {
+            assertEquals(
+                "only",
+                clipboard.primaryClip?.getItemAt(0)?.coerceToText(harness.view.context).toString(),
+            )
+        } finally {
+            automation.dropShellPermissionIdentity()
+        }
         assertTrue(harness.copied.get())
     }
 
@@ -171,10 +184,23 @@ class SelectablePageTextTest {
         assertSame(originalText, composeRule.runOnIdle { view.text })
     }
 
+    @Test
+    fun fontScaleUsesTheSameScaledDensityAsPagination() {
+        val scaledSpec = SPEC.copy(fontScale = 1.5f)
+        val harness = launch(
+            text = "Scaled reader text",
+            page = PageRange(0, 0, 18),
+            spec = scaledSpec,
+        )
+
+        assertEquals(54f, composeRule.runOnIdle { harness.view.textSize }, 0.01f)
+    }
+
     private fun launch(
         text: String,
         page: PageRange,
         activeSentence: androidx.compose.runtime.State<SentenceRange?> = mutableStateOf(null),
+        spec: PaginationSpec = SPEC,
     ): Harness {
         val selection = AtomicReference<ReaderTextRange?>()
         val editSelection = AtomicReference<ReaderTextRange?>()
@@ -188,7 +214,7 @@ class SelectablePageTextTest {
                     pageRange = page,
                     selectedRange = null,
                     activeSentenceRange = activeSentence.value,
-                    spec = SPEC,
+                    spec = spec,
                     onSelectionChanged = selection::set,
                     onEditChapter = editSelection::set,
                     onReadFromHere = readSelection::set,
@@ -218,12 +244,27 @@ class SelectablePageTextTest {
     }
 
     private fun findTextView(): SelectableReaderTextView {
-        val view = AtomicReference<SelectableReaderTextView>()
-        onView(isAssignableFrom(SelectableReaderTextView::class.java)).check { candidate, failure ->
-            if (failure != null) throw failure
-            view.set(candidate as SelectableReaderTextView)
+        return composeRule.runOnIdle {
+            resumedActivity()
+                .window
+                .decorView
+                .descendants()
+                .filterIsInstance<SelectableReaderTextView>()
+                .single()
         }
-        return view.get()
+    }
+
+    private fun resumedActivity(): Activity = ActivityLifecycleMonitorRegistry.getInstance()
+        .getActivitiesInStage(Stage.RESUMED)
+        .single()
+
+    private fun View.descendants(): Sequence<View> = sequence {
+        yield(this@descendants)
+        if (this@descendants is ViewGroup) {
+            repeat(childCount) { index ->
+                yieldAll(getChildAt(index).descendants())
+            }
+        }
     }
 
     private data class Harness(
@@ -236,6 +277,7 @@ class SelectablePageTextTest {
     )
 
     private companion object {
+        const val READ_CLIPBOARD_IN_BACKGROUND = "android.permission.READ_CLIPBOARD_IN_BACKGROUND"
         val SPEC = PaginationSpec(
             widthPx = 720,
             heightPx = 900,

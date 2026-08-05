@@ -24,6 +24,7 @@ class PaginationCacheTest {
             base.copy(spec = base.spec.copy(widthPx = 801)),
             base.copy(spec = base.spec.copy(heightPx = 1201)),
             base.copy(spec = base.spec.copy(densityDpi = 421)),
+            base.copy(spec = base.spec.copy(fontScale = 1.25f)),
             base.copy(spec = base.spec.copy(fontFamilyId = "serif")),
             base.copy(spec = base.spec.copy(fontSizeSp = 19f)),
             base.copy(spec = base.spec.copy(lineSpacingMultiplier = 1.6f)),

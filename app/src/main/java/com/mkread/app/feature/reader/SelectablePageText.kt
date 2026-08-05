@@ -165,7 +165,7 @@ class SelectableReaderTextView(context: Context) : TextView(context) {
         setPadding(spec.horizontalMarginPx, 0, spec.horizontalMarginPx, 0)
         setTextSize(
             TypedValue.COMPLEX_UNIT_PX,
-            spec.fontSizeSp * (spec.densityDpi / BASE_DENSITY_DPI),
+            spec.fontSizeSp * spec.fontScale * (spec.densityDpi / BASE_DENSITY_DPI),
         )
         typeface = Typeface.create(spec.fontFamilyId, Typeface.NORMAL)
         setLineSpacing(0f, spec.lineSpacingMultiplier)

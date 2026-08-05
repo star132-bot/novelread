@@ -1,5 +1,6 @@
 package com.mkread.app.feature.reader
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
@@ -25,6 +26,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -36,11 +38,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import com.mkread.app.R
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
@@ -54,12 +60,24 @@ fun ReaderRoute(
 ) {
     val state by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                viewModel.onAction(ReaderAction.Checkpoint)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    BackHandler { viewModel.onAction(ReaderAction.Exit) }
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
             when (event) {
                 is ReaderEvent.OpenEditor -> onOpenEditor(event.chapterId)
                 is ReaderEvent.ReadFromHere -> Unit
                 is ReaderEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
+                ReaderEvent.CloseReader -> onBack()
             }
         }
     }
@@ -67,7 +85,7 @@ fun ReaderRoute(
         state = state,
         snackbarHostState = snackbarHostState,
         onAction = viewModel::onAction,
-        onBack = onBack,
+        onBack = { viewModel.onAction(ReaderAction.Exit) },
         modifier = modifier,
     )
 }
@@ -207,6 +225,7 @@ private fun ReaderLoadedContent(
 ) {
     var viewportSize by remember { mutableStateOf(IntSize.Zero) }
     val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -236,11 +255,12 @@ private fun ReaderLoadedContent(
             )
         }
     }
-    LaunchedEffect(viewportSize, state.paginationSpec) {
+    LaunchedEffect(viewportSize, state.paginationSpec, density.fontScale) {
         if (viewportSize.width > 0 && viewportSize.height > 0) {
             val updatedSpec = state.paginationSpec.copy(
                 widthPx = viewportSize.width,
                 heightPx = viewportSize.height,
+                fontScale = density.fontScale,
             )
             if (updatedSpec != state.paginationSpec) {
                 onAction(ReaderAction.LayoutChanged(updatedSpec))
@@ -261,13 +281,11 @@ private fun ReaderPager(
         initialPage = targetPage,
         pageCount = { state.pages.size },
     )
-    LaunchedEffect(targetPage, state.pages.size) {
+    LaunchedEffect(pagerState, targetPage) {
         if (pagerState.currentPage != targetPage) pagerState.scrollToPage(targetPage)
-    }
-    LaunchedEffect(pagerState, state.currentPage) {
         snapshotFlow { pagerState.currentPage }
             .distinctUntilChanged()
-            .filter { it != state.currentPage }
+            .filter { it != targetPage }
             .collect { page ->
                 onAction(ReaderAction.GoToPage(page))
             }

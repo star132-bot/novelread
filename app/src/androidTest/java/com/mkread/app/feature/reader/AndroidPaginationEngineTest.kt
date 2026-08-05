@@ -1,6 +1,5 @@
 package com.mkread.app.feature.reader
 
-import android.graphics.Typeface
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
@@ -19,7 +18,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class AndroidPaginationEngineTest {
     private val engine = AndroidPaginationEngine(
-        typefaceResolver = { Typeface.create("sans-serif", Typeface.NORMAL) },
+        typefaceResolver = { ReaderTestFont.typeface },
     )
 
     @Test
@@ -59,9 +58,11 @@ class AndroidPaginationEngineTest {
         val narrow = engine.paginate(text, spec(widthPx = 280)).last().ranges
         val wide = engine.paginate(text, spec(widthPx = 520)).last().ranges
         val large = engine.paginate(text, spec(fontSizeSp = 25f)).last().ranges
+        val scaled = engine.paginate(text, spec(fontScale = 1.5f)).last().ranges
 
         assertFalse(narrow == wide)
         assertFalse(narrow == large)
+        assertFalse(narrow == scaled)
     }
 
     @Test(timeout = 10_000L)
@@ -89,7 +90,7 @@ class AndroidPaginationEngineTest {
         val cache = RecordingCache(ranges)
         val cachedEngine = AndroidPaginationEngine(
             cache = cache,
-            typefaceResolver = { Typeface.create("sans-serif", Typeface.NORMAL) },
+            typefaceResolver = { ReaderTestFont.typeface },
         )
 
         val batches = cachedEngine.paginate(key, text, spec()).toList()
@@ -112,12 +113,14 @@ class AndroidPaginationEngineTest {
     private fun spec(
         widthPx: Int = 320,
         fontSizeSp: Float = 18f,
+        fontScale: Float = 1f,
     ) = PaginationSpec(
         widthPx = widthPx,
         heightPx = 420,
         densityDpi = 160,
-        fontFamilyId = "sans-serif",
+        fontFamilyId = ReaderTestFont.FAMILY_ID,
         fontSizeSp = fontSizeSp,
+        fontScale = fontScale,
         lineSpacingMultiplier = 1.2f,
         horizontalMarginPx = 16,
     )

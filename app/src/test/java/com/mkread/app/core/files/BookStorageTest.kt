@@ -54,7 +54,7 @@ class BookStorageTest {
         assertEquals(bytes.sha256(), copied.sha256)
         assertEquals("source.txt", copied.file.name)
         assertArrayEquals(bytes, copied.file.readBytes())
-        assertFalse(File(staging.directory, "source.txt.tmp").exists())
+        assertFalse(File(staging.bookDirectory, "source.txt.tmp").exists())
     }
 
     @Test
@@ -69,8 +69,8 @@ class BookStorageTest {
             )
         }
 
-        assertFalse(File(staging.directory, "source.txt").exists())
-        assertFalse(File(staging.directory, "source.txt.tmp").exists())
+        assertFalse(File(staging.bookDirectory, "source.txt").exists())
+        assertFalse(File(staging.bookDirectory, "source.txt.tmp").exists())
     }
 
     @Test
@@ -125,12 +125,15 @@ class BookStorageTest {
     @Test
     fun promote_atomicallyMovesNormalizedBookAndCleansTransaction() {
         val staging = storage.begin("promote")
+        val sourceBytes = "Original source bytes".toByteArray(Charsets.UTF_8)
+        val source = storage.copySource(ByteArrayInputStream(sourceBytes), staging, "txt")
         val chapter = storage.writeChapter(staging, ordinal = 1, text = "Body")
         storage.writeMetadata(staging, metadata(chapter))
 
         val promoted = storage.promote(staging, "book-1")
 
         assertEquals(File(filesDir, "books/book-1").canonicalFile, promoted.canonicalFile)
+        assertArrayEquals(sourceBytes, File(promoted, source.file.name).readBytes())
         assertEquals("Body", File(promoted, chapter.relativePath).readText(Charsets.UTF_8))
         assertTrue(File(promoted, "metadata.json").readText().contains("source.txt"))
         assertFalse(staging.directory.exists())

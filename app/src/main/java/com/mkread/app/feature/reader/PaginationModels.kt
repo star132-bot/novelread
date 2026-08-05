@@ -14,6 +14,7 @@ data class PaginationSpec(
     val fontSizeSp: Float,
     val lineSpacingMultiplier: Float,
     val horizontalMarginPx: Int,
+    val fontScale: Float = 1f,
 )
 
 @Serializable
@@ -46,6 +47,7 @@ fun PaginationKey.cacheId(): String {
             data.writeInt(spec.widthPx)
             data.writeInt(spec.heightPx)
             data.writeInt(spec.densityDpi)
+            data.writeInt(spec.fontScale.toRawBits())
             data.writeUtf8(spec.fontFamilyId)
             data.writeInt(spec.fontSizeSp.toRawBits())
             data.writeInt(spec.lineSpacingMultiplier.toRawBits())

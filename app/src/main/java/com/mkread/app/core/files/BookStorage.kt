@@ -158,9 +158,10 @@ class FileBookStorage(
         extension: String,
     ): CopiedSource {
         val transaction = requireStaging(staging)
+        val bookDirectory = containedPath(transaction, BOOK_DIRECTORY)
         val safeExtension = normalizedExtension(extension)
-        val target = containedPath(transaction, "source.$safeExtension")
-        val temporary = containedPath(transaction, "source.$safeExtension.tmp")
+        val target = containedPath(bookDirectory, "source.$safeExtension")
+        val temporary = containedPath(bookDirectory, "source.$safeExtension.tmp")
         try {
             val result = FileOutputStream(temporary.toFile()).use { output ->
                 FileHash.copyBounded(input, output, ImportLimits.SOURCE_BYTES).also {

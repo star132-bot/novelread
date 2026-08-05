@@ -6,9 +6,13 @@ import com.mkread.app.core.database.ChapterEntity
 import com.mkread.app.core.model.SourceType
 import java.security.MessageDigest
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
@@ -149,6 +153,76 @@ class ReaderViewModelTest {
     }
 
     @Test
+    fun exitCheckpointsBeforeRequestingReaderClose() = runTest(dispatcher) {
+        val harness = Harness()
+        val viewModel = harness.viewModel()
+        runCurrent()
+        harness.pagination.requests.single().emit(
+            PaginationBatch(chapterOnePages(), complete = true),
+        )
+        runCurrent()
+        viewModel.onAction(ReaderAction.NextPage)
+        runCurrent()
+        harness.positions.checkpoints.clear()
+        val closeEvent = async { viewModel.events.first { it is ReaderEvent.CloseReader } }
+
+        viewModel.onAction(ReaderAction.Exit)
+        runCurrent()
+
+        val checkpoint = harness.positions.checkpoints.single()
+        assertEquals(5, checkpoint.characterOffset)
+        assertTrue(closeEvent.await() is ReaderEvent.CloseReader)
+    }
+
+    @Test
+    fun repeatedExitRequestsCheckpointAndCloseOnlyOnce() = runTest(dispatcher) {
+        val harness = Harness()
+        val viewModel = harness.viewModel()
+        runCurrent()
+        harness.pagination.requests.single().emit(
+            PaginationBatch(chapterOnePages(), complete = true),
+        )
+        runCurrent()
+        harness.positions.checkpoints.clear()
+        val closeEvents = mutableListOf<ReaderEvent.CloseReader>()
+        val collector = backgroundScope.launch {
+            viewModel.events.collect { event ->
+                if (event is ReaderEvent.CloseReader) closeEvents += event
+            }
+        }
+        runCurrent()
+
+        viewModel.onAction(ReaderAction.Exit)
+        viewModel.onAction(ReaderAction.Exit)
+        runCurrent()
+
+        assertEquals(1, harness.positions.checkpoints.size)
+        assertEquals(1, closeEvents.size)
+        collector.cancel()
+    }
+
+    @Test
+    fun exitCheckpointFailureStillClosesOnlyOnce() = runTest(dispatcher) {
+        val harness = Harness()
+        val viewModel = harness.viewModel()
+        runCurrent()
+        harness.pagination.requests.single().emit(
+            PaginationBatch(chapterOnePages(), complete = true),
+        )
+        runCurrent()
+        harness.positions.checkpoints.clear()
+        harness.positions.failCheckpoints = true
+        val closeEvent = async { viewModel.events.first { it is ReaderEvent.CloseReader } }
+
+        viewModel.onAction(ReaderAction.Exit)
+        viewModel.onAction(ReaderAction.Exit)
+        runCurrent()
+
+        assertEquals(1, harness.positions.checkpoints.size)
+        assertTrue(closeEvent.await() is ReaderEvent.CloseReader)
+    }
+
+    @Test
     fun pageNavigationCrossesChapterBoundariesInBothDirections() = runTest(dispatcher) {
         val harness = Harness()
         val viewModel = harness.viewModel()
@@ -238,6 +312,33 @@ class ReaderViewModelTest {
     }
 
     @Test
+    fun layoutChangeBeforeSavedOffsetPageArrivesPreservesSavedCharacterOffset() =
+        runTest(dispatcher) {
+            val harness = Harness(
+                savedPosition = ReadingPosition(
+                    bookId = BOOK.id,
+                    chapterId = CHAPTER_1.id,
+                    characterOffset = 7,
+                    pageIndex = 99,
+                    sentenceIndex = 1,
+                    updatedAt = 1L,
+                ),
+            )
+            val viewModel = harness.viewModel()
+            runCurrent()
+            harness.pagination.requests.single().emit(
+                PaginationBatch(listOf(PageRange(0, 0, 5)), complete = false),
+            )
+            runCurrent()
+
+            viewModel.onAction(ReaderAction.LayoutChanged(SPEC.copy(heightPx = 500)))
+            runCurrent()
+
+            val state = viewModel.uiState.value as ReaderUiState.Paginating
+            assertEquals(7, state.characterOffset)
+        }
+
+    @Test
     fun selectionStartMapsToContainingSentenceForReadFromHere() = runTest(dispatcher) {
         val harness = Harness()
         val viewModel = harness.viewModel()
@@ -249,11 +350,15 @@ class ReaderViewModelTest {
 
         viewModel.onAction(ReaderAction.SelectionChanged(8, 6))
         viewModel.onAction(ReaderAction.ReadFromSelection)
+        runCurrent()
 
         val state = viewModel.uiState.value as ReaderUiState.Ready
         assertEquals(5, state.activeSentenceRange?.startInclusive)
         assertEquals(5, state.characterOffset)
         assertEquals(ReaderTextRange(6, 8), state.selectedRange)
+        val checkpoint = harness.positions.checkpoints.single()
+        assertEquals(CHAPTER_1.id, checkpoint.chapterId)
+        assertEquals(5, checkpoint.characterOffset)
     }
 
     @Test

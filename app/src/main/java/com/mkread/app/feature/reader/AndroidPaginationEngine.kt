@@ -49,7 +49,7 @@ class AndroidPaginationEngine(
 
         val paint = TextPaint(TextPaint.ANTI_ALIAS_FLAG or TextPaint.SUBPIXEL_TEXT_FLAG).apply {
             typeface = typefaceResolver(spec.fontFamilyId)
-            textSize = spec.fontSizeSp * (spec.densityDpi / BASE_DENSITY_DPI)
+            textSize = spec.fontSizeSp * spec.fontScale * (spec.densityDpi / BASE_DENSITY_DPI)
         }
         val ranges = ArrayList<PageRange>()
         var pageStart = 0
@@ -83,6 +83,9 @@ class AndroidPaginationEngine(
         }
         require(spec.fontSizeSp.isFinite() && spec.fontSizeSp > 0f) {
             "Pagination font size must be positive"
+        }
+        require(spec.fontScale.isFinite() && spec.fontScale > 0f) {
+            "Pagination font scale must be positive"
         }
         require(spec.lineSpacingMultiplier.isFinite() && spec.lineSpacingMultiplier > 0f) {
             "Pagination line spacing must be positive"

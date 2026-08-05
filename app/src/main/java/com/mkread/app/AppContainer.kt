@@ -71,6 +71,7 @@ class AppContainer(application: Application) {
             fontSizeSp = 18f,
             lineSpacingMultiplier = 1.4f,
             horizontalMarginPx = (16f * metrics.density).toInt().coerceAtLeast(0),
+            fontScale = context.resources.configuration.fontScale,
         )
     }
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

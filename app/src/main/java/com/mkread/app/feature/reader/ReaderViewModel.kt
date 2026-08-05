@@ -10,6 +10,7 @@ import com.mkread.app.core.database.BookEntity
 import com.mkread.app.core.database.ChapterEntity
 import com.mkread.app.core.files.ImportLimits
 import java.util.concurrent.CancellationException
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -41,6 +42,7 @@ class ReaderViewModel(
     private val mutableUiState = MutableStateFlow<ReaderUiState>(ReaderUiState.Loading)
     private val mutableEditorUiState = MutableStateFlow<ChapterEditorUiState?>(null)
     private val eventChannel = Channel<ReaderEvent>(Channel.BUFFERED)
+    private val exitRequested = AtomicBoolean(false)
 
     private var book: BookEntity? = null
     private var chapters: List<ChapterEntity> = emptyList()
@@ -97,6 +99,7 @@ class ReaderViewModel(
             is ReaderAction.LayoutChanged -> updateLayout(action.spec)
             ReaderAction.Retry -> loadInitialState()
             ReaderAction.Checkpoint -> viewModelScope.launch { checkpointCurrentSafely() }
+            ReaderAction.Exit -> exitReader()
         }
     }
 
@@ -266,6 +269,7 @@ class ReaderViewModel(
         activeSentenceRange = sentence
         characterOffset = sentence.startInclusive
         renderLoaded()
+        viewModelScope.launch { checkpointCurrentSafely() }
         content?.chapter?.id?.let { chapterId ->
             eventChannel.trySend(ReaderEvent.ReadFromHere(chapterId, sentence))
         }
@@ -483,7 +487,12 @@ class ReaderViewModel(
 
     private fun updateLayout(spec: PaginationSpec) {
         if (spec == paginationSpec || content == null) return
-        characterOffset = pageRanges.getOrNull(currentPage)?.start ?: characterOffset
+        pageRanges.getOrNull(currentPage)
+            ?.takeIf { range ->
+                characterOffset in range.start until range.endExclusive ||
+                    (paginationComplete && characterOffset == range.endExclusive)
+            }
+            ?.let { range -> characterOffset = range.start }
         paginationSpec = spec
         startPagination()
     }
@@ -511,6 +520,20 @@ class ReaderViewModel(
             throw failure
         } catch (_: Exception) {
             eventChannel.trySend(ReaderEvent.ShowMessage("Unable to save reading position"))
+        }
+    }
+
+    private fun exitReader() {
+        if (!exitRequested.compareAndSet(false, true)) return
+        viewModelScope.launch {
+            try {
+                checkpointCurrent()
+            } catch (failure: CancellationException) {
+                throw failure
+            } catch (_: Exception) {
+                // Leaving the reader must remain possible when a checkpoint cannot be written.
+            }
+            eventChannel.send(ReaderEvent.CloseReader)
         }
     }
 

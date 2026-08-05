@@ -86,16 +86,18 @@ class ReaderScreenTest {
     @Test
     fun newlyAvailableRequestedPageBecomesVisible() {
         val tenPages = TEN_PAGE_TEXT.indices.map { index -> PageRange(index, index, index + 1) }
+        val actions = mutableListOf<ReaderAction>()
         var state by mutableStateOf<ReaderUiState>(
             paginating(tenPages.take(1), text = TEN_PAGE_TEXT, currentPage = 0),
         )
-        launchState { state }
+        launchState(actions) { state }
 
         composeRule.runOnIdle {
             state = paginating(tenPages, text = TEN_PAGE_TEXT, currentPage = 9)
         }
 
         composeRule.onNodeWithTag("reader-page-9").assertIsDisplayed()
+        assertTrue(actions.none { it == ReaderAction.GoToPage(0) })
     }
 
     @Test
@@ -118,6 +120,7 @@ class ReaderScreenTest {
 
     @Test
     fun twoHundredPercentFontScaleDoesNotOverlapReaderBands() {
+        val actions = mutableListOf<ReaderAction>()
         composeRule.setContent {
             val density = LocalDensity.current
             CompositionLocalProvider(
@@ -127,10 +130,15 @@ class ReaderScreenTest {
                     ReaderScreen(
                         state = ready(),
                         snackbarHostState = SnackbarHostState(),
-                        onAction = {},
+                        onAction = { action -> actions += action },
                         onBack = {},
                     )
                 }
+            }
+        }
+        composeRule.waitUntil(timeoutMillis = 3_000) {
+            actions.any { action ->
+                action is ReaderAction.LayoutChanged && action.spec.fontScale == 2f
             }
         }
         val top = composeRule.onNodeWithTag("reader-top-bar").getUnclippedBoundsInRoot()

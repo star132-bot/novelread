@@ -339,6 +339,41 @@ class ReaderViewModelTest {
         }
 
     @Test
+    fun layoutChangeAfterSavedOffsetPageArrivesPreservesExactSavedCharacterOffset() =
+        runTest(dispatcher) {
+            val harness = Harness(
+                savedPosition = ReadingPosition(
+                    bookId = BOOK.id,
+                    chapterId = CHAPTER_1.id,
+                    characterOffset = 7,
+                    pageIndex = 99,
+                    sentenceIndex = 1,
+                    updatedAt = 1L,
+                ),
+            )
+            val viewModel = harness.viewModel()
+            runCurrent()
+            harness.pagination.requests.single().emit(
+                PaginationBatch(
+                    listOf(PageRange(0, 0, CHAPTER_1_TEXT.length)),
+                    complete = true,
+                ),
+            )
+            runCurrent()
+
+            viewModel.onAction(ReaderAction.LayoutChanged(SPEC.copy(heightPx = 500)))
+            runCurrent()
+            harness.pagination.requests.last().emit(
+                PaginationBatch(chapterOnePages(), complete = true),
+            )
+            runCurrent()
+
+            val state = viewModel.uiState.value as ReaderUiState.Ready
+            assertEquals(7, state.characterOffset)
+            assertEquals(1, state.currentPage)
+        }
+
+    @Test
     fun selectionStartMapsToContainingSentenceForReadFromHere() = runTest(dispatcher) {
         val harness = Harness()
         val viewModel = harness.viewModel()

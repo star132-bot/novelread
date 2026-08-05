@@ -487,12 +487,6 @@ class ReaderViewModel(
 
     private fun updateLayout(spec: PaginationSpec) {
         if (spec == paginationSpec || content == null) return
-        pageRanges.getOrNull(currentPage)
-            ?.takeIf { range ->
-                characterOffset in range.start until range.endExclusive ||
-                    (paginationComplete && characterOffset == range.endExclusive)
-            }
-            ?.let { range -> characterOffset = range.start }
         paginationSpec = spec
         startPagination()
     }

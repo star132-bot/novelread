@@ -14,6 +14,7 @@ espresso = "3.6.1"
 room = "2.6.1"
 ksp = "2.0.21-1.0.28"
 work = "2.10.0"
+datastore = "1.1.1"
 serialization-json = "1.7.3"
 jsoup = "1.18.3"
 
@@ -47,6 +48,7 @@ androidx-room-compiler = { module = "androidx.room:room-compiler", version.ref =
 androidx-room-testing = { module = "androidx.room:room-testing", version.ref = "room" }
 androidx-work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
 androidx-work-testing = { module = "androidx.work:work-testing", version.ref = "work" }
+androidx-datastore-preferences = { module = "androidx.datastore:datastore-preferences", version.ref = "datastore" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization-json" }
 jsoup = { module = "org.jsoup:jsoup", version.ref = "jsoup" }
 

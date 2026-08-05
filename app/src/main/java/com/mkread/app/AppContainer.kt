@@ -2,6 +2,8 @@ package com.mkread.app
 
 import android.app.Application
 import android.util.Log
+import androidx.datastore.preferences.preferencesDataStoreFile
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.room.Room
 import androidx.work.WorkManager
 import com.mkread.app.core.database.MkreadDatabase
@@ -21,6 +23,8 @@ import com.mkread.app.feature.reader.PaginationSpec
 import com.mkread.app.feature.reader.ReaderBookSource
 import com.mkread.app.feature.reader.RoomChapterEditMetadata
 import com.mkread.app.feature.reader.RoomReadingPositionRepository
+import com.mkread.app.playback.DataStorePlaybackCheckpointStore
+import com.mkread.app.playback.MKREAD_PREFERENCES_FILE_NAME
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -28,6 +32,17 @@ import kotlinx.coroutines.launch
 
 class AppContainer(application: Application) {
     private val context = application.applicationContext
+    private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    val preferencesDataStore = PreferenceDataStoreFactory.create(
+        scope = applicationScope,
+        produceFile = {
+            context.preferencesDataStoreFile(
+                MKREAD_PREFERENCES_FILE_NAME.removeSuffix(PREFERENCES_FILE_SUFFIX),
+            )
+        },
+    )
+    val playbackCheckpointStore = DataStorePlaybackCheckpointStore(preferencesDataStore)
 
     val database: MkreadDatabase = Room.databaseBuilder(
         context,
@@ -74,8 +89,6 @@ class AppContainer(application: Application) {
             fontScale = context.resources.configuration.fontScale,
         )
     }
-    private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-
     fun reconcileLibraryOnStartup() {
         applicationScope.launch {
             try {
@@ -88,6 +101,7 @@ class AppContainer(application: Application) {
 
     private companion object {
         const val DATABASE_NAME = "mkread.db"
+        const val PREFERENCES_FILE_SUFFIX = ".preferences_pb"
         const val LOG_TAG = "MKread.Library"
     }
 }

@@ -25,6 +25,7 @@ import com.mkread.app.feature.reader.RoomChapterEditMetadata
 import com.mkread.app.feature.reader.RoomReadingPositionRepository
 import com.mkread.app.playback.DataStorePlaybackCheckpointStore
 import com.mkread.app.playback.MKREAD_PREFERENCES_FILE_NAME
+import com.mkread.app.speech.RoomAudioCacheRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -48,8 +49,15 @@ class AppContainer(application: Application) {
         context,
         MkreadDatabase::class.java,
         DATABASE_NAME,
-    ).addMigrations(MkreadDatabase.MIGRATION_1_2).build()
+    ).addMigrations(
+        MkreadDatabase.MIGRATION_1_2,
+        MkreadDatabase.MIGRATION_2_3,
+    ).build()
     val storage = FileBookStorage(context.filesDir, context.cacheDir)
+    val audioCacheRepository = RoomAudioCacheRepository(
+        dao = database.audioCacheDao(),
+        cacheDir = context.cacheDir,
+    )
     val repository = RoomBookRepository(database, storage)
     val documentAccess = AndroidDocumentAccess(context)
     val importer = ImportBookUseCase(storage, repository)

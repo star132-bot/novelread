@@ -397,6 +397,121 @@ class ReaderViewModelTest {
     }
 
     @Test
+    fun playbackSentenceMovesHighlightPageAndSemanticCheckpoint() = runTest(dispatcher) {
+        val harness = Harness()
+        val viewModel = harness.viewModel()
+        runCurrent()
+        harness.pagination.requests.single().emit(
+            PaginationBatch(chapterOnePages(), complete = true),
+        )
+        runCurrent()
+
+        viewModel.onAction(
+            ReaderAction.PlaybackSentenceChanged(
+                com.mkread.app.playback.SentenceId(
+                    bookId = BOOK.id,
+                    chapterId = CHAPTER_1.id,
+                    index = 1,
+                    start = 5,
+                    end = CHAPTER_1_TEXT.length,
+                ),
+            ),
+        )
+        runCurrent()
+
+        val state = viewModel.uiState.value as ReaderUiState.Ready
+        assertEquals(SentenceRange(1, 5, CHAPTER_1_TEXT.length), state.activeSentenceRange)
+        assertEquals(5, state.characterOffset)
+        assertEquals(1, state.currentPage)
+        assertEquals(5, harness.positions.checkpoints.last().characterOffset)
+    }
+
+    @Test
+    fun playbackCrossingAChapterBoundaryLoadsHighlightsAndCheckpointsTheNewChapter() =
+        runTest(dispatcher) {
+            val harness = Harness()
+            val viewModel = harness.viewModel()
+            runCurrent()
+            harness.pagination.requests.single().emit(
+                PaginationBatch(chapterOnePages(), complete = true),
+            )
+            runCurrent()
+            harness.positions.checkpoints.clear()
+            val target = SentenceSegmenter().segment(CHAPTER_2_TEXT).last()
+
+            viewModel.onAction(
+                ReaderAction.PlaybackSentenceChanged(
+                    com.mkread.app.playback.SentenceId(
+                        bookId = BOOK.id,
+                        chapterId = CHAPTER_2.id,
+                        index = target.index,
+                        start = target.startInclusive,
+                        end = target.endExclusive,
+                    ),
+                ),
+            )
+            runCurrent()
+
+            val chapterTwoRequest = harness.pagination.requests.last()
+            assertEquals(CHAPTER_2_TEXT, chapterTwoRequest.text)
+            chapterTwoRequest.emit(
+                PaginationBatch(
+                    listOf(
+                        PageRange(0, 0, target.startInclusive),
+                        PageRange(1, target.startInclusive, CHAPTER_2_TEXT.length),
+                    ),
+                    complete = true,
+                ),
+            )
+            runCurrent()
+
+            val state = viewModel.uiState.value as ReaderUiState.Ready
+            assertEquals(CHAPTER_2.id, state.chapter.id)
+            assertEquals(target, state.activeSentenceRange)
+            assertEquals(target.startInclusive, state.characterOffset)
+            assertEquals(1, state.currentPage)
+            assertEquals(CHAPTER_2.id, harness.positions.checkpoints.last().chapterId)
+            assertEquals(target.startInclusive, harness.positions.checkpoints.last().characterOffset)
+        }
+
+    @Test
+    fun manualChapterNavigationDetachesTheVisibleReaderFromBackgroundPlayback() =
+        runTest(dispatcher) {
+            val harness = Harness()
+            val viewModel = harness.viewModel()
+            runCurrent()
+            harness.pagination.requests.single().emit(
+                PaginationBatch(chapterOnePages(), complete = true),
+            )
+            runCurrent()
+
+            viewModel.onAction(ReaderAction.GoToChapter(CHAPTER_2.id))
+            runCurrent()
+            val chapterTwoRequest = harness.pagination.requests.last()
+            chapterTwoRequest.emit(
+                PaginationBatch(listOf(PageRange(0, 0, CHAPTER_2_TEXT.length)), complete = true),
+            )
+            runCurrent()
+            val requestCount = harness.pagination.requests.size
+
+            viewModel.onAction(
+                ReaderAction.PlaybackSentenceChanged(
+                    com.mkread.app.playback.SentenceId(
+                        bookId = BOOK.id,
+                        chapterId = CHAPTER_1.id,
+                        index = 0,
+                        start = 0,
+                        end = 5,
+                    ),
+                ),
+            )
+            runCurrent()
+
+            assertEquals(CHAPTER_2.id, (viewModel.uiState.value as ReaderUiState.Ready).chapter.id)
+            assertEquals(requestCount, harness.pagination.requests.size)
+        }
+
+    @Test
     fun editSaveReloadsContentAndUsesRemappedOffset() = runTest(dispatcher) {
         val harness = Harness()
         val viewModel = harness.viewModel()

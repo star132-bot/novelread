@@ -101,6 +101,92 @@ class CliBuildTest(unittest.TestCase):
 class CliSendTest(unittest.TestCase):
     @patch("mkvoice_studio.cli.discover_adb", return_value=Path("C:/tools/adb.exe"))
     @patch("mkvoice_studio.cli.AdbClient")
+    def test_existing_voice_requires_explicit_replace_and_returns_partial_delivery(
+        self,
+        client_type: object,
+        _discover: object,
+    ) -> None:
+        client_type.return_value.send_package.return_value = SendResult(
+            state=SendState.PUSHED_REPLACE_REQUIRED,
+            remote_path="/sdcard/Download/local.mkvoice",
+            message="Use --replace-existing after confirmation.",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            package = Path(directory) / "local.mkvoice"
+            package.write_bytes(b"package")
+            stdout = io.StringIO()
+
+            exit_code = main(
+                ["send", str(package)],
+                stdout=stdout,
+                stderr=io.StringIO(),
+            )
+
+        self.assertEqual(3, exit_code)
+        self.assertIn("--replace-existing", stdout.getvalue())
+
+    @patch("mkvoice_studio.cli.discover_adb", return_value=Path("C:/tools/adb.exe"))
+    @patch("mkvoice_studio.cli.AdbClient")
+    def test_confirmed_provider_import_is_successful(
+        self,
+        client_type: object,
+        _discover: object,
+    ) -> None:
+        client_type.return_value.send_package.return_value = SendResult(
+            state=SendState.IMPORTED,
+            remote_path="/sdcard/Download/local.mkvoice",
+            message="已确认导入。",
+            import_confirmed=True,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            package = Path(directory) / "local.mkvoice"
+            package.write_bytes(b"package")
+            stdout = io.StringIO()
+
+            exit_code = main(
+                ["send", str(package), "--serial", "emulator-5554"],
+                stdout=stdout,
+                stderr=io.StringIO(),
+            )
+
+        self.assertEqual(0, exit_code)
+        self.assertIn("确认导入", stdout.getvalue())
+        client_type.return_value.send_package.assert_called_once_with(
+            package,
+            replace_existing=False,
+        )
+
+    @patch("mkvoice_studio.cli.discover_adb", return_value=Path("C:/tools/adb.exe"))
+    @patch("mkvoice_studio.cli.AdbClient")
+    def test_send_requires_explicit_flag_to_replace_existing_voice(
+        self,
+        client_type: object,
+        _discover: object,
+    ) -> None:
+        client_type.return_value.send_package.return_value = SendResult(
+            state=SendState.IMPORTED,
+            remote_path="/sdcard/Download/local.mkvoice",
+            message="confirmed",
+            import_confirmed=True,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            package = Path(directory) / "local.mkvoice"
+            package.write_bytes(b"package")
+
+            exit_code = main(
+                ["send", str(package), "--replace-existing"],
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+
+        self.assertEqual(0, exit_code)
+        client_type.return_value.send_package.assert_called_once_with(
+            package,
+            replace_existing=True,
+        )
+
+    @patch("mkvoice_studio.cli.discover_adb", return_value=Path("C:/tools/adb.exe"))
+    @patch("mkvoice_studio.cli.AdbClient")
     def test_launch_request_is_successful_but_never_claims_import_confirmation(
         self,
         client_type: object,

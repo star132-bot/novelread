@@ -1,9 +1,9 @@
 package com.mkread.app
 
 import android.app.Application
+import android.content.Context
 import android.util.Log
-import androidx.datastore.preferences.preferencesDataStoreFile
-import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.preferencesDataStore
 import androidx.room.Room
 import androidx.work.WorkManager
 import com.mkread.app.core.database.MkreadDatabase
@@ -18,6 +18,7 @@ import com.mkread.app.feature.reader.ChapterMetadataSource
 import com.mkread.app.feature.reader.FileChapterContentRepository
 import com.mkread.app.feature.reader.FileChapterEditor
 import com.mkread.app.feature.reader.FilePaginationCache
+import com.mkread.app.feature.reader.OfflineReaderNarrationController
 import com.mkread.app.feature.reader.PaginationDerivedDataInvalidator
 import com.mkread.app.feature.reader.PaginationSpec
 import com.mkread.app.feature.reader.ReaderBookSource
@@ -26,29 +27,27 @@ import com.mkread.app.feature.reader.RoomReadingPositionRepository
 import com.mkread.app.playback.DataStorePlaybackCheckpointStore
 import com.mkread.app.playback.MKREAD_PREFERENCES_FILE_NAME
 import com.mkread.app.speech.RoomAudioCacheRepository
+import com.mkread.app.ui.theme.ThemeModeController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
-class AppContainer(application: Application) {
+class AppContainer(
+    application: Application,
+    databaseName: String = DATABASE_NAME,
+) {
     private val context = application.applicationContext
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    val preferencesDataStore = PreferenceDataStoreFactory.create(
-        scope = applicationScope,
-        produceFile = {
-            context.preferencesDataStoreFile(
-                MKREAD_PREFERENCES_FILE_NAME.removeSuffix(PREFERENCES_FILE_SUFFIX),
-            )
-        },
-    )
+    val preferencesDataStore = context.mkreadPreferencesDataStore
     val playbackCheckpointStore = DataStorePlaybackCheckpointStore(preferencesDataStore)
+    val themeModeController = ThemeModeController(preferencesDataStore, applicationScope)
 
     val database: MkreadDatabase = Room.databaseBuilder(
         context,
         MkreadDatabase::class.java,
-        DATABASE_NAME,
+        databaseName,
     ).addMigrations(
         MkreadDatabase.MIGRATION_1_2,
         MkreadDatabase.MIGRATION_2_3,
@@ -76,6 +75,12 @@ class AppContainer(application: Application) {
         override suspend fun markOpened(bookId: String) = repository.markOpened(bookId)
     }
     val chapterContentRepository = FileChapterContentRepository(context.filesDir, chapterMetadataSource)
+    val narrationController = OfflineReaderNarrationController(
+        context = context,
+        cache = audioCacheRepository,
+        chapterContentRepository = chapterContentRepository,
+        scope = applicationScope,
+    )
     val readingPositionRepository = RoomReadingPositionRepository(database)
     val paginationCache = FilePaginationCache(context.cacheDir)
     val paginationEngine = AndroidPaginationEngine(paginationCache)
@@ -109,7 +114,10 @@ class AppContainer(application: Application) {
 
     private companion object {
         const val DATABASE_NAME = "mkread.db"
-        const val PREFERENCES_FILE_SUFFIX = ".preferences_pb"
         const val LOG_TAG = "MKread.Library"
     }
 }
+
+private val Context.mkreadPreferencesDataStore by preferencesDataStore(
+    name = MKREAD_PREFERENCES_FILE_NAME.removeSuffix(".preferences_pb"),
+)

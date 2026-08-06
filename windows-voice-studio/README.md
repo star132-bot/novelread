@@ -38,17 +38,21 @@ python -m mkvoice_studio gui
 
 1. 在本机生成并校验 `.mkvoice`。
 2. 通过 ADB 推送到 Android 的 `Download` 目录。
-3. 如果已安装的 MKread 声明了 `.mkvoice` 接收器，请求系统用 MKread 打开它。
+3. 通过仅允许 ADB shell 调用的 MKread 导入通道流式写入并校验安装。
+4. 旧版 APK 没有导入通道时，才回退为请求系统用 MKread 打开 `Download` 中的文件。
 
 推送文件使用 `MKread-<SHA-256>.mkvoice` 内容寻址名称；不同内容不会覆盖 `Download` 中原有的同名音色包，相同内容重复发送只会写入相同字节。
+默认导入不会覆盖 Android 中已安装的相同 ID 音色。只有用户在图形界面勾选“允许替换”，或在命令行显式传入 `--replace-existing` 时，才会替换旧音色。
 
-桌面工具无法越过 Android 确认应用内部事务是否最终成功，所以结果会严格区分：
+结果会严格区分：
 
 - `已推送`：文件只到达 `Download`，尚未导入。
+- `已确认导入`：MKread 已核对 SHA-256、验证包结构并完成安装，音色已设为当前音色。
+- `需要显式替换`：Android 中已有相同 ID 的音色，本次默认发送未覆盖；确认后勾选“允许替换”或使用 `--replace-existing` 重新发送。
 - `已请求打开`：Android 已接受启动请求，仍需在 MKread 音色库中核对。
-- 工具不会显示虚假的“已确认导入”。
+- 只有 MKread 导入通道返回成功时，工具才显示“已确认导入”。
 
-在 Android Phase 5 接收器尚未实现的 APK 上，工具会诚实报告“已推送，但尚未导入”，用户可在后续 MKread 音色库中从 `Download` 手动选择。
+旧版 APK 不支持导入通道且系统无法转授 `Download` URI 时，工具会诚实报告“已推送，但尚未导入”。
 
 ## 命令行
 
@@ -81,6 +85,8 @@ python -m mkvoice_studio send D:\voices\yunlan.mkvoice `
   --adb D:\Android\platform-tools\adb.exe `
   --serial emulator-5554
 ```
+
+需要替换 Android 中相同 ID 的已有音色时，显式增加 `--replace-existing`。
 
 退出码为 `0` 表示生成成功，或 ADB 已成功请求 MKread 打开；`2` 表示生成/发送失败；`3` 表示包已生成或已推送，但一键接入未完成。任何情况下都需要在 MKread 音色库中核对最终导入结果。
 

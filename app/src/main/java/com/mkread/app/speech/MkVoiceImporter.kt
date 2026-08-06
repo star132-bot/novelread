@@ -47,6 +47,13 @@ data class ImportedVoiceStyle(
     val transcript: String,
 )
 
+data class VoicePackagePreview(
+    val id: String,
+    val displayName: String,
+    val languages: List<String>,
+    val emotions: List<String>,
+)
+
 class MkVoiceImporter(
     private val voicesRoot: File,
 ) {
@@ -55,9 +62,7 @@ class MkVoiceImporter(
     }
 
     fun importPackage(source: File, replace: Boolean = false): ImportedVoice {
-        if (!source.isFile || source.length() !in 1..MAX_PACKAGE_BYTES) {
-            fail("invalid_package", "MKvoice package is missing or exceeds 250 MiB")
-        }
+        requirePackageFile(source)
 
         requireDirectory(voicesRoot)
         val packageData = readPackage(source)
@@ -67,6 +72,23 @@ class MkVoiceImporter(
                 recoverInterruptedInstall(id)
                 installLocked(packageData, replace)
             }
+        }
+    }
+
+    fun inspectPackage(source: File): VoicePackagePreview {
+        requirePackageFile(source)
+        val manifest = readPackage(source).manifest
+        return VoicePackagePreview(
+            id = manifest.id,
+            displayName = manifest.displayName,
+            languages = manifest.languages,
+            emotions = manifest.styles.map(Style::emotion),
+        )
+    }
+
+    private fun requirePackageFile(source: File) {
+        if (!source.isFile || source.length() !in 1..MAX_PACKAGE_BYTES) {
+            fail("invalid_package", "MKvoice package is missing or exceeds 250 MiB")
         }
     }
 

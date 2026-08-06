@@ -25,6 +25,8 @@ import com.mkread.app.speech.SpikeScreen
 fun MkreadNavHost(
     container: AppContainer,
     onOpenBook: ((String) -> Unit)? = null,
+    nightModeEnabled: Boolean = false,
+    onToggleNightMode: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val navController = rememberNavController()
@@ -65,6 +67,9 @@ fun MkreadNavHost(
             val readerViewModel: ReaderViewModel = viewModel(factory = factory)
             ReaderRoute(
                 viewModel = readerViewModel,
+                narrationController = container.narrationController,
+                nightModeEnabled = nightModeEnabled,
+                onToggleNightMode = onToggleNightMode,
                 onBack = navController::popBackStack,
                 onOpenEditor = { chapterId ->
                     navController.navigate(chapterEditorRoute(bookId, chapterId)) {

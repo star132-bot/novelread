@@ -1,5 +1,7 @@
 package com.mkread.app.feature.reader
 
+import com.mkread.app.playback.SentenceId
+
 sealed interface ReaderAction {
     data object NextPage : ReaderAction
 
@@ -21,6 +23,8 @@ sealed interface ReaderAction {
     data object ClearSelection : ReaderAction
 
     data object ReadFromSelection : ReaderAction
+
+    data class PlaybackSentenceChanged(val sentenceId: SentenceId?) : ReaderAction
 
     data object OpenEditor : ReaderAction
 

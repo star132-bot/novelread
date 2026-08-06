@@ -86,7 +86,11 @@ def main(
         if args.command == "gui":
             from .gui import run_gui
 
-            run_gui(adb_path=args.adb, serial=args.serial)
+            run_gui(
+                adb_path=args.adb,
+                serial=args.serial,
+                replace_existing=args.replace_existing,
+            )
             return EXIT_OK
     except KeyboardInterrupt:
         print("操作已取消。", file=stderr)
@@ -100,6 +104,11 @@ def main(
 def _add_adb_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--adb", type=Path, help="本地 adb.exe；留空时自动查找")
     parser.add_argument("--serial", help="ADB 设备序列号；连接多台设备时必须指定")
+    parser.add_argument(
+        "--replace-existing",
+        action="store_true",
+        help="显式允许替换 Android 中相同 ID 的已安装音色",
+    )
 
 
 def _run_build(args: argparse.Namespace, *, stdout: TextIO, stderr: TextIO) -> int:
@@ -132,6 +141,7 @@ def _run_build(args: argparse.Namespace, *, stdout: TextIO, stderr: TextIO) -> i
             result.output_path,
             adb_path=args.adb,
             serial=args.serial,
+            replace_existing=args.replace_existing,
             stdout=stdout,
         )
     except AdbError as error:
@@ -145,6 +155,7 @@ def _run_send(args: argparse.Namespace, *, stdout: TextIO, stderr: TextIO) -> in
         args.package,
         adb_path=args.adb,
         serial=args.serial,
+        replace_existing=args.replace_existing,
         stdout=stdout,
     )
 
@@ -154,15 +165,19 @@ def _send_package(
     *,
     adb_path: Path | None,
     serial: str | None,
+    replace_existing: bool,
     stdout: TextIO,
 ) -> int:
     executable = discover_adb(adb_path)
     if executable is None:
         raise AdbError("未找到 adb.exe；请安装 Android SDK Platform-Tools 或使用 --adb 指定")
 
-    result = AdbClient(executable, serial=serial).send_package(package_path)
+    result = AdbClient(executable, serial=serial).send_package(
+        package_path,
+        replace_existing=replace_existing,
+    )
     print(result.message, file=stdout)
     print(f"Android 路径: {result.remote_path}", file=stdout)
-    if result.state is SendState.LAUNCH_REQUESTED:
+    if result.state in (SendState.IMPORTED, SendState.LAUNCH_REQUESTED):
         return EXIT_OK
     return EXIT_PARTIAL_DELIVERY

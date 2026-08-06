@@ -41,7 +41,7 @@ class Migration2To3Test {
     @Before
     fun setUp() {
         context.deleteDatabase(TEST_DATABASE)
-        context.deleteDatabase(APP_DATABASE)
+        context.deleteDatabase(APP_CONTAINER_TEST_DATABASE)
         cacheRoot.deleteRecursively()
     }
 
@@ -50,13 +50,13 @@ class Migration2To3Test {
         database?.close()
         database = null
         context.deleteDatabase(TEST_DATABASE)
-        context.deleteDatabase(APP_DATABASE)
+        context.deleteDatabase(APP_CONTAINER_TEST_DATABASE)
         cacheRoot.deleteRecursively()
     }
 
     @Test
     fun appContainerRegistersMigrationAndAudioCacheRepository() = runBlocking {
-        helper.createDatabase(APP_DATABASE, 2).apply {
+        helper.createDatabase(APP_CONTAINER_TEST_DATABASE, 2).apply {
             execSQL(
                 """
                 INSERT INTO books(
@@ -69,7 +69,7 @@ class Migration2To3Test {
         }
 
         val application = ApplicationProvider.getApplicationContext<Application>()
-        val container = AppContainer(application)
+        val container = AppContainer(application, databaseName = APP_CONTAINER_TEST_DATABASE)
         database = container.database
 
         assertEquals("book-app", database!!.bookDao().getById("book-app")!!.id)
@@ -354,7 +354,7 @@ class Migration2To3Test {
     }
 
     private companion object {
-        const val APP_DATABASE = "mkread.db"
+        const val APP_CONTAINER_TEST_DATABASE = "app-container-migration-2-3-test.db"
         const val TEST_DATABASE = "migration-2-3-test.db"
     }
 }

@@ -4,13 +4,16 @@ import android.content.ComponentName
 import android.content.Context
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import androidx.media3.common.Player
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.mkread.app.feature.reader.resetForNarrationReplacement
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -80,6 +83,81 @@ class PlaybackServiceTest {
         }
     }
 
+    @Test
+    fun completedQueueRemainsSeekableAndCanReplayFromTheBeginning() {
+        val token = SessionToken(context, ComponentName(context, PlaybackService::class.java))
+        val controller = MediaController.Builder(context, token)
+            .buildAsync()
+            .get(15, TimeUnit.SECONDS)
+        val file = File(context.cacheDir, "playback-replay-test.wav").apply {
+            writeBytes(playableWave(seconds = 2))
+        }
+        val item = SentenceMediaItemFactory.create(
+            sentenceId = SentenceId("book", "chapter", 0, 0, 9),
+            waveFile = file,
+            bookTitle = "Replay test",
+            chapterTitle = "Chapter",
+        )
+
+        try {
+            instrumentation.runOnMainSync {
+                controller.setMediaItem(item)
+                controller.prepare()
+                controller.play()
+            }
+            waitUntil { onMain { controller.playbackState == Player.STATE_ENDED } }
+
+            instrumentation.runOnMainSync {
+                controller.seekTo(0L)
+                controller.play()
+            }
+            waitUntil {
+                onMain { controller.isPlaying }
+            }
+            assertTrue(onMain { controller.currentPosition < 2_000L })
+        } finally {
+            instrumentation.runOnMainSync {
+                controller.stop()
+                controller.release()
+            }
+            file.delete()
+        }
+    }
+
+    @Test
+    fun narrationReplacementStopsAndClearsTheOldQueueImmediately() {
+        val token = SessionToken(context, ComponentName(context, PlaybackService::class.java))
+        val controller = MediaController.Builder(context, token)
+            .buildAsync()
+            .get(15, TimeUnit.SECONDS)
+        val file = File(context.cacheDir, "playback-replacement-test.wav").apply {
+            writeBytes(playableWave(seconds = 2))
+        }
+        val item = SentenceMediaItemFactory.create(
+            sentenceId = SentenceId("old-book", "old-chapter", 0, 0, 9),
+            waveFile = file,
+            bookTitle = "Old narration",
+            chapterTitle = "Old chapter",
+        )
+
+        try {
+            instrumentation.runOnMainSync {
+                controller.setMediaItem(item)
+                controller.prepare()
+                controller.play()
+            }
+            waitUntil { onMain { controller.playWhenReady && controller.mediaItemCount == 1 } }
+
+            instrumentation.runOnMainSync { controller.resetForNarrationReplacement() }
+
+            assertFalse(onMain { controller.playWhenReady })
+            assertEquals(0, onMain { controller.mediaItemCount })
+        } finally {
+            instrumentation.runOnMainSync { controller.release() }
+            file.delete()
+        }
+    }
+
     private fun <T> onMain(block: () -> T): T {
         var value: Result<T>? = null
         instrumentation.runOnMainSync { value = runCatching(block) }
@@ -94,9 +172,11 @@ class PlaybackServiceTest {
         val sentence: SentenceId?,
     )
 
-    private fun playableWave(seconds: Int): ByteArray {
+    private fun playableWave(seconds: Int): ByteArray = playableWaveMillis(seconds * 1_000)
+
+    private fun playableWaveMillis(milliseconds: Int): ByteArray {
         val sampleRate = 24_000
-        val dataSize = sampleRate * seconds * 2
+        val dataSize = sampleRate * milliseconds / 1_000 * 2
         return ByteArrayOutputStream().apply {
             write("RIFF".toByteArray())
             writeLittleEndian32(36 + dataSize)
@@ -112,6 +192,14 @@ class PlaybackServiceTest {
             writeLittleEndian32(dataSize)
             write(ByteArray(dataSize))
         }.toByteArray()
+    }
+
+    private fun waitUntil(condition: () -> Boolean) {
+        val deadline = android.os.SystemClock.uptimeMillis() + 30_000L
+        while (!condition() && android.os.SystemClock.uptimeMillis() < deadline) {
+            Thread.sleep(25L)
+        }
+        assertTrue("Timed out waiting for playback state", condition())
     }
 
     private fun ByteArrayOutputStream.writeLittleEndian16(value: Int) {

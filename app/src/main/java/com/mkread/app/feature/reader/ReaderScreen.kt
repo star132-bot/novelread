@@ -33,6 +33,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -56,9 +57,15 @@ fun ReaderRoute(
     viewModel: ReaderViewModel,
     onBack: () -> Unit,
     onOpenEditor: (String) -> Unit,
+    narrationController: ReaderNarrationController? = null,
+    nightModeEnabled: Boolean = false,
+    onToggleNightMode: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.uiState.collectAsState()
+    val playbackState = narrationController?.state?.collectAsState()?.value
+        ?: ReaderPlaybackUiState()
+    val latestState by rememberUpdatedState(state)
     val snackbarHostState = remember { SnackbarHostState() }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, viewModel) {
@@ -71,20 +78,55 @@ fun ReaderRoute(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     BackHandler { viewModel.onAction(ReaderAction.Exit) }
-    LaunchedEffect(viewModel) {
+    LaunchedEffect(viewModel, narrationController) {
         viewModel.events.collect { event ->
             when (event) {
                 is ReaderEvent.OpenEditor -> onOpenEditor(event.chapterId)
-                is ReaderEvent.ReadFromHere -> Unit
+                is ReaderEvent.ReadFromHere -> {
+                    val loaded = latestState as? ReaderUiState.Loaded
+                    if (loaded != null && loaded.chapter.id == event.chapterId) {
+                        narrationController?.start(loaded, event.sentence)
+                    }
+                }
                 is ReaderEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
                 ReaderEvent.CloseReader -> onBack()
             }
         }
     }
+    LaunchedEffect(playbackState.activeSentence) {
+        viewModel.onAction(ReaderAction.PlaybackSentenceChanged(playbackState.activeSentence))
+    }
+    LaunchedEffect(playbackState.message) {
+        playbackState.message?.let { snackbarHostState.showSnackbar(it) }
+    }
     ReaderScreen(
         state = state,
+        playbackState = playbackState,
+        nightModeEnabled = nightModeEnabled,
+        onToggleNightMode = onToggleNightMode,
         snackbarHostState = snackbarHostState,
         onAction = viewModel::onAction,
+        onPlaybackAction = { action ->
+            val controller = narrationController ?: return@ReaderScreen
+            when (action) {
+                ReaderPlaybackAction.Toggle -> when {
+                    playbackState.isPlaying -> controller.pause()
+                    playbackState.status == ReaderPlaybackStatus.PAUSED -> controller.play()
+                    else -> {
+                        val loaded = state as? ReaderUiState.Loaded
+                        val sentence = loaded?.sentences?.nearestBoundary(loaded.characterOffset)
+                        if (loaded != null && sentence != null) controller.start(loaded, sentence)
+                    }
+                }
+                ReaderPlaybackAction.Previous -> controller.previous()
+                ReaderPlaybackAction.Next -> controller.next()
+                ReaderPlaybackAction.Replay -> controller.replay()
+                is ReaderPlaybackAction.SetSpeed -> controller.setSpeed(action.value)
+                is ReaderPlaybackAction.SetEmotionEnabled -> {
+                    controller.setEmotionEnabled(action.enabled)
+                }
+            }
+        },
         onBack = { viewModel.onAction(ReaderAction.Exit) },
         modifier = modifier,
     )
@@ -97,6 +139,10 @@ fun ReaderScreen(
     snackbarHostState: SnackbarHostState,
     onAction: (ReaderAction) -> Unit,
     onBack: () -> Unit,
+    playbackState: ReaderPlaybackUiState = ReaderPlaybackUiState(),
+    onPlaybackAction: (ReaderPlaybackAction) -> Unit = {},
+    nightModeEnabled: Boolean = false,
+    onToggleNightMode: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val loaded = state as? ReaderUiState.Loaded
@@ -150,6 +196,23 @@ fun ReaderScreen(
                                         onAction(ReaderAction.OpenEditor)
                                     },
                                 )
+                                if (onToggleNightMode != null) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                if (nightModeEnabled) {
+                                                    stringResource(R.string.reader_night_mode_on)
+                                                } else {
+                                                    stringResource(R.string.reader_night_mode)
+                                                },
+                                            )
+                                        },
+                                        onClick = {
+                                            menuExpanded = false
+                                            onToggleNightMode()
+                                        },
+                                    )
+                                }
                             }
                         }
                     }
@@ -168,6 +231,8 @@ fun ReaderScreen(
                     onPreviousPage = { onAction(ReaderAction.PreviousPage) },
                     onNextPage = { onAction(ReaderAction.NextPage) },
                     onNextChapter = { onAction(ReaderAction.NextChapter) },
+                    playbackState = playbackState,
+                    onPlaybackAction = onPlaybackAction,
                 )
             }
         },

@@ -64,7 +64,7 @@ class Migration1To2Test {
         migrated.close()
 
         database = Room.databaseBuilder(context, MkreadDatabase::class.java, TEST_DATABASE)
-            .addMigrations(MkreadDatabase.MIGRATION_1_2)
+            .addMigrations(MkreadDatabase.MIGRATION_1_2, MkreadDatabase.MIGRATION_2_3)
             .allowMainThreadQueries()
             .build()
         database!!.readingPositionDao().upsert(

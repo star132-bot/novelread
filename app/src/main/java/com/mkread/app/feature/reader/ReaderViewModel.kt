@@ -61,6 +61,8 @@ class ReaderViewModel(
     private var paginationJob: Job? = null
     private var paginationRequestId = 0L
     private var pendingChapterId: String? = null
+    private var pendingPlaybackSentence: com.mkread.app.playback.SentenceId? = null
+    private var followPlayback = true
 
     val uiState: StateFlow<ReaderUiState> = mutableUiState.asStateFlow()
     val editorUiState: StateFlow<ChapterEditorUiState?> = mutableEditorUiState.asStateFlow()
@@ -72,32 +74,56 @@ class ReaderViewModel(
 
     fun onAction(action: ReaderAction) {
         when (action) {
-            ReaderAction.NextPage -> movePage(1)
-            ReaderAction.PreviousPage -> movePage(-1)
-            is ReaderAction.GoToPage -> goToPage(action.pageIndex)
-            ReaderAction.NextChapter -> navigateChapter(chapterIndex + 1, 0)
-            ReaderAction.PreviousChapter -> navigateChapter(chapterIndex - 1, Int.MAX_VALUE)
+            ReaderAction.NextPage -> {
+                detachFromPlayback()
+                movePage(1)
+            }
+            ReaderAction.PreviousPage -> {
+                detachFromPlayback()
+                movePage(-1)
+            }
+            is ReaderAction.GoToPage -> {
+                detachFromPlayback()
+                goToPage(action.pageIndex)
+            }
+            ReaderAction.NextChapter -> {
+                detachFromPlayback()
+                navigateChapter(chapterIndex + 1, 0)
+            }
+            ReaderAction.PreviousChapter -> {
+                detachFromPlayback()
+                navigateChapter(chapterIndex - 1, Int.MAX_VALUE)
+            }
             is ReaderAction.GoToChapter -> {
+                detachFromPlayback()
                 val index = chapters.indexOfFirst { it.id == action.chapterId }
                 if (index >= 0) navigateChapter(index, 0)
             }
-            is ReaderAction.SelectionChanged -> updateSelection(
-                action.startInclusive,
-                action.endExclusive,
-            )
+            is ReaderAction.SelectionChanged -> {
+                detachFromPlayback()
+                updateSelection(action.startInclusive, action.endExclusive)
+            }
             ReaderAction.ClearSelection -> {
+                detachFromPlayback()
                 selectedRange = null
                 renderLoaded()
             }
             ReaderAction.ReadFromSelection -> readFromSelection()
-            ReaderAction.OpenEditor -> openEditor()
+            is ReaderAction.PlaybackSentenceChanged -> updatePlaybackSentence(action.sentenceId)
+            ReaderAction.OpenEditor -> {
+                detachFromPlayback()
+                openEditor()
+            }
             is ReaderAction.PrepareEditor -> prepareEditor(action.chapterId)
             is ReaderAction.EditDraft -> updateEditorDraft(action.text)
             ReaderAction.CloseEditor -> mutableEditorUiState.value = null
             is ReaderAction.SaveEdit -> saveEdit(action.text)
             ReaderAction.Undo -> undoEdit()
             is ReaderAction.LayoutChanged -> updateLayout(action.spec)
-            ReaderAction.Retry -> loadInitialState()
+            ReaderAction.Retry -> {
+                followPlayback = true
+                loadInitialState()
+            }
             ReaderAction.Checkpoint -> viewModelScope.launch { checkpointCurrentSafely() }
             ReaderAction.Exit -> exitReader()
         }
@@ -159,11 +185,18 @@ class ReaderViewModel(
         chapterIndex = targetChapterIndex
         content = loadedContent
         sentences = sentenceSegmenter.segment(loadedContent.text)
+        val playbackSentence = pendingPlaybackSentence
+            ?.takeIf { it.chapterId == loadedContent.chapter.id }
+            ?.let(::findPlaybackSentence)
+        if (pendingPlaybackSentence?.chapterId == loadedContent.chapter.id) {
+            pendingPlaybackSentence = null
+        }
         pageRanges = emptyList()
         currentPage = 0
-        characterOffset = targetOffset.coerceIn(0, loadedContent.text.length)
+        characterOffset = (playbackSentence?.startInclusive ?: targetOffset)
+            .coerceIn(0, loadedContent.text.length)
         selectedRange = null
-        activeSentenceRange = null
+        activeSentenceRange = playbackSentence
         paginationComplete = false
         undoAvailable = chapterEditor.hasUndo(loadedContent.chapter.id)
         renderLoaded()
@@ -229,7 +262,12 @@ class ReaderViewModel(
         viewModelScope.launch { checkpointCurrentSafely() }
     }
 
-    private fun navigateChapter(targetIndex: Int, targetOffset: Int) {
+    private fun navigateChapter(
+        targetIndex: Int,
+        targetOffset: Int,
+        retainPendingPlayback: Boolean = false,
+    ) {
+        if (!retainPendingPlayback) pendingPlaybackSentence = null
         if (targetIndex !in chapters.indices || targetIndex == chapterIndex) return
         val targetChapterId = chapters[targetIndex].id
         if (pendingChapterId == targetChapterId) return
@@ -264,6 +302,7 @@ class ReaderViewModel(
     }
 
     private fun readFromSelection() {
+        followPlayback = true
         val start = selectedRange?.startInclusive ?: characterOffset
         val sentence = sentences.nearestBoundary(start) ?: return
         activeSentenceRange = sentence
@@ -273,6 +312,59 @@ class ReaderViewModel(
         content?.chapter?.id?.let { chapterId ->
             eventChannel.trySend(ReaderEvent.ReadFromHere(chapterId, sentence))
         }
+    }
+
+    private fun updatePlaybackSentence(sentenceId: com.mkread.app.playback.SentenceId?) {
+        if (sentenceId == null) {
+            pendingPlaybackSentence = null
+            activeSentenceRange = null
+            renderLoaded()
+            return
+        }
+        if (!followPlayback) return
+        val loadedContent = content ?: return
+        if (sentenceId.bookId != bookId) return
+        if (sentenceId.chapterId != loadedContent.chapter.id) {
+            val targetIndex = chapters.indexOfFirst { it.id == sentenceId.chapterId }
+            if (targetIndex < 0) return
+            pendingPlaybackSentence = sentenceId
+            navigateChapter(
+                targetIndex = targetIndex,
+                targetOffset = sentenceId.start,
+                retainPendingPlayback = true,
+            )
+            return
+        }
+        pendingPlaybackSentence = null
+        val sentence = findPlaybackSentence(sentenceId) ?: return
+        activeSentenceRange = sentence
+        characterOffset = sentence.startInclusive
+        if (pageRanges.isNotEmpty()) {
+            currentPage = pageForOffset(
+                offset = characterOffset,
+                ranges = pageRanges,
+                textLength = loadedContent.text.length,
+                complete = paginationComplete,
+            )
+        }
+        renderLoaded()
+        viewModelScope.launch { checkpointCurrentSafely() }
+    }
+
+    private fun findPlaybackSentence(
+        sentenceId: com.mkread.app.playback.SentenceId,
+    ): SentenceRange? = sentences.getOrNull(sentenceId.index)
+        ?.takeIf {
+            it.startInclusive == sentenceId.start && it.endExclusive == sentenceId.end
+        }
+        ?: sentences.firstOrNull {
+            it.startInclusive == sentenceId.start && it.endExclusive == sentenceId.end
+        }
+
+    private fun detachFromPlayback() {
+        followPlayback = false
+        pendingPlaybackSentence = null
+        activeSentenceRange = null
     }
 
     private fun openEditor() {

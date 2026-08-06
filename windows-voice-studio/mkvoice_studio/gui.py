@@ -59,6 +59,7 @@ class StudioWindow:
         *,
         adb_path: Path | None = None,
         serial: str | None = None,
+        replace_existing: bool = False,
     ) -> None:
         self.root = root
         self.root.title("MKread 音色制作工具")
@@ -80,6 +81,7 @@ class StudioWindow:
         self.ffmpeg_path = tk.StringVar()
         self.adb_path = tk.StringVar(value=str(adb_path) if adb_path else "")
         self.serial = tk.StringVar(value=serial or "")
+        self.replace_existing = tk.BooleanVar(value=replace_existing)
         self.status = tk.StringVar(value="就绪")
         self.styles: dict[str, StyleWidgets] = {}
         self._results: queue.Queue[WorkerSuccess | WorkerFailure] = queue.Queue()
@@ -183,6 +185,11 @@ class StudioWindow:
         )
         ttk.Label(files, text="设备序列号").grid(row=3, column=0, sticky="w", pady=4)
         ttk.Entry(files, textvariable=self.serial).grid(row=3, column=1, sticky="ew", pady=4)
+        ttk.Checkbutton(
+            files,
+            text="允许替换 Android 中相同 ID 的已有音色",
+            variable=self.replace_existing,
+        ).grid(row=4, column=1, sticky="w", pady=(4, 0))
 
         actions = ttk.Frame(outer)
         actions.grid(row=5, column=0, sticky="ew", pady=(14, 0))
@@ -355,9 +362,10 @@ class StudioWindow:
         adb_text = self.adb_path.get().strip()
         selected_adb = Path(adb_text) if adb_text else None
         selected_serial = self.serial.get().strip() or None
+        replace_existing = self.replace_existing.get()
         threading.Thread(
             target=self._worker,
-            args=(request, send_to_android, selected_adb, selected_serial),
+            args=(request, send_to_android, replace_existing, selected_adb, selected_serial),
             daemon=True,
         ).start()
         self.root.after(100, self._poll_worker)
@@ -366,6 +374,7 @@ class StudioWindow:
         self,
         request: StudioBuildRequest,
         send_to_android: bool,
+        replace_existing: bool,
         adb_path: Path | None,
         serial: str | None,
     ) -> None:
@@ -385,7 +394,10 @@ class StudioWindow:
                 send = AdbClient(
                     executable,
                     serial=serial,
-                ).send_package(build.output_path)
+                ).send_package(
+                    build.output_path,
+                    replace_existing=replace_existing,
+                )
             self._results.put(WorkerSuccess(build, send))
         except Exception as error:
             self._results.put(WorkerFailure(error, build))
@@ -421,7 +433,14 @@ class StudioWindow:
             )
             return
 
-        if result.send.state is SendState.LAUNCH_REQUESTED:
+        if result.send.state is SendState.IMPORTED:
+            self.status.set("已导入 MKread")
+            messagebox.showinfo(
+                "导入完成",
+                f"{result.send.message}\n\nAndroid 路径：{result.send.remote_path}",
+                parent=self.root,
+            )
+        elif result.send.state is SendState.LAUNCH_REQUESTED:
             self.status.set("已请求 MKread 打开；请在手机中核对")
             messagebox.showinfo(
                 "已请求打开",
@@ -442,10 +461,20 @@ class StudioWindow:
             button.state([state])
 
 
-def run_gui(*, adb_path: Path | None = None, serial: str | None = None) -> None:
+def run_gui(
+    *,
+    adb_path: Path | None = None,
+    serial: str | None = None,
+    replace_existing: bool = False,
+) -> None:
     try:
         root = tk.Tk()
     except tk.TclError as error:
         raise ValueError("无法启动图形界面；请确认当前 Windows 会话可显示桌面窗口") from error
-    StudioWindow(root, adb_path=adb_path, serial=serial)
+    StudioWindow(
+        root,
+        adb_path=adb_path,
+        serial=serial,
+        replace_existing=replace_existing,
+    )
     root.mainloop()

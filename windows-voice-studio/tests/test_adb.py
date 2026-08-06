@@ -42,7 +42,14 @@ class AdbSendTest(unittest.TestCase):
         package.write_bytes(b"package")
         return package
 
-    def fake_runner(self, *, receiver: bool, installed: bool = True):
+    def fake_runner(
+        self,
+        *,
+        receiver: bool,
+        installed: bool = True,
+        provider: bool = False,
+        provider_error: str | None = None,
+    ):
         calls: list[tuple[list[str], dict[str, object]]] = []
 
         def runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -60,6 +67,24 @@ class AdbSendTest(unittest.TestCase):
             if "pm path com.mkread.app" in joined:
                 stdout = "package:/data/app/com.mkread.app/base.apk\n" if installed else ""
                 return subprocess.CompletedProcess(command, 0 if installed else 1, stdout, "")
+            if "content write --uri" in joined:
+                provider_available = provider or provider_error is not None
+                return subprocess.CompletedProcess(
+                    command,
+                    0 if provider_available else 1,
+                    "" if provider_available else "No provider found",
+                    "",
+                )
+            if "content call" in joined:
+                if provider_error is not None:
+                    return subprocess.CompletedProcess(
+                        command,
+                        0,
+                        f"Bundle[{{status=error, errorCode={provider_error}}}]\n",
+                        "",
+                    )
+                stdout = "Bundle[{status=ok, voiceId=com.local.test}]\n" if provider else ""
+                return subprocess.CompletedProcess(command, 0 if provider else 1, stdout, "")
             if "query-activities" in joined:
                 stdout = "com.mkread.app/.VoiceImportActivity\n" if receiver else "No activities found\n"
                 return subprocess.CompletedProcess(command, 0, stdout, "")
@@ -68,6 +93,77 @@ class AdbSendTest(unittest.TestCase):
             raise AssertionError(f"unexpected command shape: {command!r}")
 
         return runner, calls
+
+    def test_adb_provider_stream_confirms_import_without_uri_grant(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            package = self.make_package(Path(directory))
+            runner, calls = self.fake_runner(receiver=False, provider=True)
+            client = AdbClient(Path("C:/tools/adb.exe"), runner=runner)
+
+            result = client.send_package(package)
+
+        self.assertEqual(SendState.IMPORTED, result.state)
+        self.assertTrue(result.pushed)
+        self.assertTrue(result.import_confirmed)
+        self.assertFalse(result.launch_requested)
+        self.assertIn("确认导入", result.message)
+        joined_calls = [" ".join(call[0]) for call in calls]
+        self.assertTrue(any("content write --uri" in call for call in joined_calls))
+        self.assertTrue(any("content call" in call for call in joined_calls))
+        self.assertTrue(any("--method import" in call for call in joined_calls))
+        self.assertFalse(any("--method import_replace" in call for call in joined_calls))
+        self.assertFalse(any("query-activities" in call for call in joined_calls))
+        self.assertFalse(any("am start" in call for call in joined_calls))
+        self.assertTrue(all(call[1]["shell"] is False for call in calls))
+
+    def test_explicit_replace_uses_separate_provider_method(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            package = self.make_package(Path(directory))
+            runner, calls = self.fake_runner(receiver=False, provider=True)
+            client = AdbClient(Path("C:/tools/adb.exe"), runner=runner)
+
+            result = client.send_package(package, replace_existing=True)
+
+        self.assertEqual(SendState.IMPORTED, result.state)
+        provider_call = next(
+            " ".join(call[0]) for call in calls if "content call" in " ".join(call[0])
+        )
+        self.assertIn("--method import_replace", provider_call)
+
+    def test_existing_voice_requires_explicit_replace_without_launching_an_activity(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            package = self.make_package(Path(directory))
+            runner, calls = self.fake_runner(
+                receiver=True,
+                provider_error="destination_exists",
+            )
+            client = AdbClient(Path("C:/tools/adb.exe"), runner=runner)
+
+            result = client.send_package(package)
+
+        self.assertEqual(SendState.PUSHED_REPLACE_REQUIRED, result.state)
+        self.assertFalse(result.import_confirmed)
+        self.assertFalse(result.launch_requested)
+        self.assertIn("--replace-existing", result.message)
+        joined_calls = [" ".join(call[0]) for call in calls]
+        self.assertFalse(any("query-activities" in call for call in joined_calls))
+        self.assertFalse(any("am start" in call for call in joined_calls))
+
+    def test_provider_validation_failure_is_reported_without_external_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            package = self.make_package(Path(directory))
+            runner, calls = self.fake_runner(
+                receiver=True,
+                provider_error="checksum_mismatch",
+            )
+
+            result = AdbClient(Path("adb.exe"), runner=runner).send_package(package)
+
+        self.assertEqual(SendState.PUSHED_IMPORT_REJECTED, result.state)
+        self.assertIn("拒绝", result.message)
+        joined_calls = [" ".join(call[0]) for call in calls]
+        self.assertFalse(any("query-activities" in call for call in joined_calls))
+        self.assertFalse(any("am start" in call for call in joined_calls))
 
     def test_missing_receiver_reports_pushed_but_not_imported(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -81,7 +177,7 @@ class AdbSendTest(unittest.TestCase):
         self.assertTrue(result.pushed)
         self.assertFalse(result.launch_requested)
         self.assertFalse(result.import_confirmed)
-        self.assertIn("Phase 5", result.message)
+        self.assertIn("尚未导入", result.message)
         self.assertIn("Download", result.message)
         self.assertFalse(any("am start" in " ".join(call[0]) for call in calls))
         self.assertTrue(all(call[1]["shell"] is False for call in calls))

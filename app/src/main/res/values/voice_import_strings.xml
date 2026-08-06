@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="voice_import_success">音色已导入：%1$s</string>
+    <string name="voice_import_failed">音色导入失败</string>
+    <string name="voice_import_invalid_source">无效的音色导入来源</string>
+    <string name="voice_import_confirm_title">导入此音色？</string>
+    <string name="voice_import_confirm_details">名称：%1$s\nID：%2$s\n语言：%3$s\n情绪：%4$s</string>
+    <string name="voice_import_confirm_action">导入并使用</string>
+    <string name="voice_import_cancel">取消</string>
+    <string name="voice_import_progress_title">正在导入音色</string>
+</resources>

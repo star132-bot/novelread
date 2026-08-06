@@ -18,6 +18,7 @@ VOICE_MIME_TYPES = (
     "application/octet-stream",
     "application/zip",
 )
+VOICE_PROVIDER_URI = f"content://{ANDROID_PACKAGE}.voice-import"
 ADB_QUERY_TIMEOUT_SECONDS = 15
 ADB_LAUNCH_TIMEOUT_SECONDS = 30
 ADB_PUSH_TIMEOUT_SECONDS = 120
@@ -28,10 +29,20 @@ class AdbError(RuntimeError):
 
 
 class SendState(Enum):
+    IMPORTED = "imported"
+    PUSHED_REPLACE_REQUIRED = "pushed_replace_required"
+    PUSHED_IMPORT_REJECTED = "pushed_import_rejected"
     PUSHED_APP_NOT_INSTALLED = "pushed_app_not_installed"
     PUSHED_NO_RECEIVER = "pushed_no_receiver"
     PUSHED_LAUNCH_FAILED = "pushed_launch_failed"
     LAUNCH_REQUESTED = "launch_requested"
+
+
+class ProviderImportState(Enum):
+    IMPORTED = "imported"
+    REPLACE_REQUIRED = "replace_required"
+    REJECTED = "rejected"
+    UNAVAILABLE = "unavailable"
 
 
 @dataclass(frozen=True)
@@ -101,7 +112,12 @@ class AdbClient:
         self._serial = serial.strip() if serial else None
         self._runner = runner
 
-    def send_package(self, package_path: Path) -> SendResult:
+    def send_package(
+        self,
+        package_path: Path,
+        *,
+        replace_existing: bool = False,
+    ) -> SendResult:
         package_path = Path(package_path)
         if not package_path.is_file() or package_path.suffix.lower() != ".mkvoice":
             raise AdbError("select an existing .mkvoice package")
@@ -136,6 +152,35 @@ class AdbClient:
                 ),
             )
 
+        provider_result = self._import_through_provider(
+            serial,
+            remote_path,
+            package_hash,
+            replace_existing=replace_existing,
+        )
+        if provider_result is ProviderImportState.IMPORTED:
+            return SendResult(
+                state=SendState.IMPORTED,
+                remote_path=remote_path,
+                message="已推送并确认导入 MKread，音色已设为当前音色。",
+                import_confirmed=True,
+            )
+        if provider_result is ProviderImportState.REPLACE_REQUIRED:
+            return SendResult(
+                state=SendState.PUSHED_REPLACE_REQUIRED,
+                remote_path=remote_path,
+                message=(
+                    "已推送，但 Android 中已有相同 ID 的音色；默认未覆盖。"
+                    "确认需要替换后，请勾选“允许替换”或使用 --replace-existing 重新发送。"
+                ),
+            )
+        if provider_result is ProviderImportState.REJECTED:
+            return SendResult(
+                state=SendState.PUSHED_IMPORT_REJECTED,
+                remote_path=remote_path,
+                message="已推送，但 MKread 拒绝了无效或不兼容的音色包，未进行导入。",
+            )
+
         content_uri = _download_content_uri(remote_filename)
         receiver_mime = self._find_receiver_mime(serial, content_uri)
         if receiver_mime is None:
@@ -144,8 +189,8 @@ class AdbClient:
                 remote_path=remote_path,
                 message=(
                     "已推送到 Android Download，但当前 APK 没有 .mkvoice ACTION_VIEW "
-                    "接收器（Android Phase 5 尚未完成），因此尚未导入。"
-                    "请更新到完成 Phase 5 的 APK，再在 MKread 音色库中从 Download 选择该包。"
+                    "接收器，因此尚未导入。"
+                    "请更新 MKread，再从 Windows 工具重新发送该包。"
                 ),
             )
 
@@ -190,6 +235,64 @@ class AdbClient:
             ),
             launch_requested=True,
         )
+
+    def _import_through_provider(
+        self,
+        serial: str,
+        remote_path: str,
+        package_hash: str,
+        *,
+        replace_existing: bool,
+    ) -> ProviderImportState:
+        if not re.fullmatch(r"[0-9a-f]{64}", package_hash):
+            return ProviderImportState.UNAVAILABLE
+        expected_path = f"{DOWNLOAD_DIRECTORY}/MKread-{package_hash}.mkvoice"
+        if remote_path != expected_path:
+            return ProviderImportState.UNAVAILABLE
+        staging_uri = f"{VOICE_PROVIDER_URI}/staging/{package_hash}"
+        staged = self._run(
+            [
+                "shell",
+                f"content write --uri {staging_uri} < {remote_path}",
+            ],
+            serial=serial,
+            timeout_seconds=ADB_PUSH_TIMEOUT_SECONDS,
+        )
+        if staged.returncode != 0:
+            return ProviderImportState.UNAVAILABLE
+        imported = self._run(
+            [
+                "shell",
+                "content",
+                "call",
+                "--uri",
+                VOICE_PROVIDER_URI,
+                "--method",
+                "import_replace" if replace_existing else "import",
+                "--arg",
+                package_hash,
+            ],
+            serial=serial,
+            timeout_seconds=ADB_PUSH_TIMEOUT_SECONDS,
+        )
+        if imported.returncode != 0:
+            return ProviderImportState.UNAVAILABLE
+        if re.search(
+            r"(?:^|[,{\s])status=ok(?:[,}\]\s]|$)",
+            imported.stdout,
+        ) is not None:
+            return ProviderImportState.IMPORTED
+        if re.search(
+            r"(?:^|[,{\s])errorCode=destination_exists(?:[,}\]\s]|$)",
+            imported.stdout,
+        ) is not None:
+            return ProviderImportState.REPLACE_REQUIRED
+        if re.search(
+            r"(?:^|[,{\s])status=error(?:[,}\]\s]|$)",
+            imported.stdout,
+        ) is not None:
+            return ProviderImportState.REJECTED
+        return ProviderImportState.UNAVAILABLE
 
     def _select_device(self) -> str:
         completed = self._run(

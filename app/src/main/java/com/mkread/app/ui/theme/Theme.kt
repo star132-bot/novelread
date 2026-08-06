@@ -26,9 +26,12 @@ private val DarkColorScheme = darkColorScheme(
 )
 
 @Composable
-fun MkreadTheme(content: @Composable () -> Unit) {
+fun MkreadTheme(
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    content: @Composable () -> Unit,
+) {
     MaterialTheme(
-        colorScheme = if (isSystemInDarkTheme()) DarkColorScheme else LightColorScheme,
+        colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme,
         content = content,
     )
 }

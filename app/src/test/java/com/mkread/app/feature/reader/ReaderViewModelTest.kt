@@ -118,6 +118,59 @@ class ReaderViewModelTest {
     }
 
     @Test
+    fun savedPositionOnHiddenChapterMigratesToTheNextReadableChapter() = runTest(dispatcher) {
+        val hiddenVolume = emptyChapter(id = "hidden-volume", ordinal = 1)
+        val harness = Harness(
+            savedPosition = ReadingPosition(
+                bookId = BOOK.id,
+                chapterId = hiddenVolume.id,
+                characterOffset = 0,
+                pageIndex = 0,
+                sentenceIndex = 0,
+                updatedAt = 1L,
+            ),
+            chapterContents = linkedMapOf(
+                CHAPTER_1.copy(ordinal = 0) to CHAPTER_1_TEXT,
+                hiddenVolume to "",
+                CHAPTER_2.copy(ordinal = 2) to CHAPTER_2_TEXT,
+            ),
+        )
+        val viewModel = harness.viewModel()
+        runCurrent()
+
+        val state = viewModel.uiState.value as ReaderUiState.Paginating
+        assertEquals(CHAPTER_2.id, state.chapter.id)
+        assertEquals(0, state.characterOffset)
+        assertEquals(CHAPTER_2.id, harness.positions.checkpoints.single().chapterId)
+    }
+
+    @Test
+    fun savedPositionOnTrailingHiddenChapterMigratesToEndOfPreviousChapter() = runTest(dispatcher) {
+        val hiddenVolume = emptyChapter(id = "trailing-volume", ordinal = 1)
+        val harness = Harness(
+            savedPosition = ReadingPosition(
+                bookId = BOOK.id,
+                chapterId = hiddenVolume.id,
+                characterOffset = 0,
+                pageIndex = 0,
+                sentenceIndex = 0,
+                updatedAt = 1L,
+            ),
+            chapterContents = linkedMapOf(
+                CHAPTER_1.copy(ordinal = 0) to CHAPTER_1_TEXT,
+                hiddenVolume to "",
+            ),
+        )
+        val viewModel = harness.viewModel()
+        runCurrent()
+
+        val state = viewModel.uiState.value as ReaderUiState.Paginating
+        assertEquals(CHAPTER_1.id, state.chapter.id)
+        assertEquals(CHAPTER_1_TEXT.length, state.characterOffset)
+        assertEquals(CHAPTER_1.id, harness.positions.checkpoints.single().chapterId)
+    }
+
+    @Test
     fun positionForMissingChapterFallsBackToFirstChapterOffsetZero() = runTest(dispatcher) {
         val harness = Harness(
             savedPosition = ReadingPosition(
@@ -1008,6 +1061,16 @@ class ReaderViewModelTest {
     private fun chapterOnePages() = listOf(
         PageRange(0, 0, 5),
         PageRange(1, 5, CHAPTER_1_TEXT.length),
+    )
+
+    private fun emptyChapter(id: String, ordinal: Int) = ChapterEntity(
+        id = id,
+        bookId = BOOK.id,
+        ordinal = ordinal,
+        title = "第一卷",
+        relativePath = "$id.txt",
+        characterCount = 0,
+        contentSha256 = "empty-hash",
     )
 
     private companion object {

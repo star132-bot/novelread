@@ -145,27 +145,23 @@ class ReaderViewModel(
                 } catch (_: Exception) {
                     eventChannel.trySend(ReaderEvent.ShowMessage("Unable to update recently opened books"))
                 }
-                val loadedChapters = contentRepository.listChapters(bookId)
-                    .orderedReadableChapters()
+                val orderedChapters = contentRepository.listChapters(bookId).orderedChapters()
+                val loadedChapters = orderedChapters.filter { chapter -> chapter.isReadable() }
                 if (loadedChapters.isEmpty()) {
                     return@launch showError(false, "Book has no readable chapters")
                 }
                 val savedPosition = positionRepository.get(bookId)
-                val matchedSavedChapterIndex = savedPosition
-                    ?.let { saved -> loadedChapters.indexOfFirst { it.id == saved.chapterId } }
-                    ?.takeIf { it >= 0 }
-                val savedChapterIndex = matchedSavedChapterIndex ?: 0
-                val savedOffset = if (matchedSavedChapterIndex == null) {
-                    0
-                } else {
-                    savedPosition.characterOffset
-                }
+                val target = resolveInitialChapterTarget(
+                    orderedChapters = orderedChapters,
+                    readableChapters = loadedChapters,
+                    savedPosition = savedPosition,
+                )
                 book = loadedBook
                 chapters = loadedChapters
                 loadChapter(
-                    targetChapterIndex = savedChapterIndex,
-                    targetOffset = savedOffset,
-                    persistPosition = false,
+                    targetChapterIndex = target.chapterIndex,
+                    targetOffset = target.characterOffset,
+                    persistPosition = target.persistMigratedPosition,
                 )
             } catch (failure: CancellationException) {
                 throw failure
@@ -680,8 +676,44 @@ class ReaderViewModel(
     }
 
     private fun List<ChapterEntity>.orderedReadableChapters(): List<ChapterEntity> =
-        filter { chapter -> chapter.characterCount > 0 }
-            .sortedWith(compareBy<ChapterEntity> { it.ordinal }.thenBy { it.id })
+        orderedChapters().filter { chapter -> chapter.isReadable() }
+
+    private fun List<ChapterEntity>.orderedChapters(): List<ChapterEntity> =
+        sortedWith(compareBy<ChapterEntity> { it.ordinal }.thenBy { it.id })
+
+    private fun ChapterEntity.isReadable(): Boolean = characterCount > 0
+
+    private fun resolveInitialChapterTarget(
+        orderedChapters: List<ChapterEntity>,
+        readableChapters: List<ChapterEntity>,
+        savedPosition: ReadingPosition?,
+    ): InitialChapterTarget {
+        if (savedPosition == null) return InitialChapterTarget.firstChapter()
+        val directIndex = readableChapters.indexOfFirst { chapter ->
+            chapter.id == savedPosition.chapterId
+        }
+        if (directIndex >= 0) {
+            return InitialChapterTarget(
+                chapterIndex = directIndex,
+                characterOffset = savedPosition.characterOffset,
+                persistMigratedPosition = false,
+            )
+        }
+
+        val hiddenIndex = orderedChapters.indexOfFirst { chapter ->
+            chapter.id == savedPosition.chapterId && !chapter.isReadable()
+        }
+        if (hiddenIndex < 0) return InitialChapterTarget.firstChapter()
+        val next = orderedChapters.drop(hiddenIndex + 1).firstOrNull { chapter -> chapter.isReadable() }
+        val replacement = next
+            ?: orderedChapters.take(hiddenIndex).lastOrNull { chapter -> chapter.isReadable() }
+            ?: return InitialChapterTarget.firstChapter()
+        return InitialChapterTarget(
+            chapterIndex = readableChapters.indexOfFirst { chapter -> chapter.id == replacement.id },
+            characterOffset = if (next != null) 0 else Int.MAX_VALUE,
+            persistMigratedPosition = true,
+        )
+    }
 
     private fun pageForOffset(
         offset: Int,
@@ -699,6 +731,20 @@ class ReaderViewModel(
 
     companion object {
         const val BOOK_ID_KEY = "bookId"
+    }
+
+    private data class InitialChapterTarget(
+        val chapterIndex: Int,
+        val characterOffset: Int,
+        val persistMigratedPosition: Boolean,
+    ) {
+        companion object {
+            fun firstChapter() = InitialChapterTarget(
+                chapterIndex = 0,
+                characterOffset = 0,
+                persistMigratedPosition = false,
+            )
+        }
     }
 }
 

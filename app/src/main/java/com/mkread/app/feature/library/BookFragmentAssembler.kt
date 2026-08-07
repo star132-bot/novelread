@@ -61,13 +61,18 @@ class AssembleBookFragmentsUseCase(
             val sourceChapters = contentRepository.listChapters(fragment.bookId)
                 .sortedWith(compareBy<ChapterEntity> { it.ordinal }.thenBy { it.id })
             require(sourceChapters.isNotEmpty()) { "Fragment ${fragment.bookId} has no chapters" }
-            sourceChapters.map { sourceChapter ->
-                val content = contentRepository.load(sourceChapter.id)
+            val readableChapters = sourceChapters
+                .map { sourceChapter -> contentRepository.load(sourceChapter.id) }
+                .filter { content -> content.text.isNotBlank() }
+            require(readableChapters.isNotEmpty()) {
+                "Fragment ${fragment.bookId} has no readable chapters"
+            }
+            readableChapters.map { content ->
                 AssemblyChapter(
-                    title = if (sourceChapters.size == 1) {
+                    title = if (readableChapters.size == 1) {
                         cleanFragmentTitle(fragment.title)
                     } else {
-                        sourceChapter.title.trim().ifBlank { cleanFragmentTitle(fragment.title) }
+                        content.chapter.title.trim().ifBlank { cleanFragmentTitle(fragment.title) }
                     },
                     text = content.text,
                     sourceContentSha256 = content.contentSha256,

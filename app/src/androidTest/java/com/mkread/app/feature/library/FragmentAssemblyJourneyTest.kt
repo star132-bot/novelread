@@ -48,12 +48,12 @@ class FragmentAssemblyJourneyTest {
         fragmentBookIds += importFragment(
             key = "assembly-$runId-two",
             displayName = "02 第二章 回声.txt",
-            text = "第二章 回声\n\n第二章正文，窗外的雨声逐渐清晰。",
+            text = "第一卷\n第二章 回声\n\n第二章正文，窗外的雨声逐渐清晰。",
         )
         fragmentBookIds += importFragment(
             key = "assembly-$runId-one",
             displayName = "01 第一章 起点.txt",
-            text = "第一章 起点\n\n第一章正文，列车从清晨的站台出发。",
+            text = "第一卷\n第一章 起点\n\n第一章正文，列车从清晨的站台出发。",
         )
     }
 

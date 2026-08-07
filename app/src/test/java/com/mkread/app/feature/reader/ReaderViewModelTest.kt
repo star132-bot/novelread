@@ -87,6 +87,37 @@ class ReaderViewModelTest {
     }
 
     @Test
+    fun zeroCharacterStructuralChaptersAreHiddenAndSkippedByNavigation() = runTest(dispatcher) {
+        val emptyVolume = ChapterEntity(
+            id = "empty-volume",
+            bookId = BOOK.id,
+            ordinal = 0,
+            title = "第一卷",
+            relativePath = "empty-volume.txt",
+            characterCount = 0,
+            contentSha256 = "empty-hash",
+        )
+        val harness = Harness(
+            chapterContents = linkedMapOf(
+                emptyVolume to "",
+                CHAPTER_1.copy(ordinal = 1) to CHAPTER_1_TEXT,
+                CHAPTER_2.copy(ordinal = 2) to CHAPTER_2_TEXT,
+            ),
+        )
+        val viewModel = harness.viewModel()
+        runCurrent()
+
+        val initial = viewModel.uiState.value as ReaderUiState.Paginating
+        assertEquals(CHAPTER_1.id, initial.chapter.id)
+        assertEquals(listOf(CHAPTER_1.id, CHAPTER_2.id), initial.chapters.map { it.id })
+
+        viewModel.onAction(ReaderAction.NextChapter)
+        runCurrent()
+
+        assertEquals(CHAPTER_2_TEXT, harness.pagination.requests.last().text)
+    }
+
+    @Test
     fun positionForMissingChapterFallsBackToFirstChapterOffsetZero() = runTest(dispatcher) {
         val harness = Harness(
             savedPosition = ReadingPosition(
@@ -808,13 +839,12 @@ class ReaderViewModelTest {
 
     private class Harness(
         savedPosition: ReadingPosition? = null,
+        chapterContents: LinkedHashMap<ChapterEntity, String> = linkedMapOf(
+            CHAPTER_1 to CHAPTER_1_TEXT,
+            CHAPTER_2 to CHAPTER_2_TEXT,
+        ),
     ) {
-        val content = FakeChapterContentRepository(
-            linkedMapOf(
-                CHAPTER_1 to CHAPTER_1_TEXT,
-                CHAPTER_2 to CHAPTER_2_TEXT,
-            ),
-        )
+        val content = FakeChapterContentRepository(chapterContents)
         val positions = FakeReadingPositionRepository(savedPosition)
         val pagination = ControllablePaginationEngine()
         val editor = FakeChapterEditor(content)

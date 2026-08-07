@@ -100,6 +100,37 @@ class BookFragmentAssemblerTest {
     }
 
     @Test
+    fun assembleDropsEmptyVolumePlaceholdersFromPreviouslyImportedFragments() = runTest {
+        val sources = listOf(
+            fragmentWithEmptyVolume("one", "01 第一章 初见", "第一章 初见", "first body"),
+            fragmentWithEmptyVolume("two", "02 第二章 调查", "第二章 调查", "second body"),
+        )
+        val repository = RecordingAssemblyRepository()
+        val assembler = AssembleBookFragmentsUseCase(
+            storage = FileBookStorage(File(root, "files"), File(root, "cache")),
+            repository = repository,
+            contentRepository = FakeChapterContentRepository(sources),
+            ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+            idGenerator = { "assembled-book" },
+        )
+
+        val result = assembler.assemble(
+            BookAssemblyRequest(
+                title = "完整小说",
+                folderId = null,
+                fragments = sources.map(SourceFixture::source),
+            ),
+        )
+
+        assertEquals(2, result.chapterCount)
+        assertEquals(
+            listOf("第一章 初见", "第二章 调查"),
+            repository.committedChapters.map(ChapterEntity::title),
+        )
+        assertTrue(repository.committedChapters.none { it.characterCount == 0 })
+    }
+
+    @Test
     fun cancellationDuringCleanupKeepsTheAlreadyCommittedBook() = runTest {
         val sources = listOf(
             fragment("one", "01 第一章", "first body"),
@@ -215,6 +246,33 @@ class BookFragmentAssemblerTest {
         return SourceFixture(
             source = BookFragmentSource(bookId, title),
             chapters = listOf(ChapterContent(chapter, text, chapter.contentSha256)),
+        )
+    }
+
+    private fun fragmentWithEmptyVolume(
+        bookId: String,
+        sourceTitle: String,
+        chapterTitle: String,
+        text: String,
+    ): SourceFixture {
+        fun chapter(ordinal: Int, title: String, body: String): ChapterContent {
+            val entity = ChapterEntity(
+                id = "$bookId:${ordinal.toString().padStart(4, '0')}",
+                bookId = bookId,
+                ordinal = ordinal,
+                title = title,
+                relativePath = "chapter-${ordinal.toString().padStart(4, '0')}.txt",
+                characterCount = body.length,
+                contentSha256 = body.sha256(),
+            )
+            return ChapterContent(entity, body, entity.contentSha256)
+        }
+        return SourceFixture(
+            source = BookFragmentSource(bookId, sourceTitle),
+            chapters = listOf(
+                chapter(1, "第一卷", ""),
+                chapter(2, chapterTitle, text),
+            ),
         )
     }
 

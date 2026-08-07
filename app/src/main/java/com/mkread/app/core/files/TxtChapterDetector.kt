@@ -37,7 +37,7 @@ class TxtChapterDetector {
                 title = heading.title,
                 text = body.joinToString("\n").trimBoundaryBlankLines(),
             )
-        }
+        }.filter { chapter -> chapter.text.isNotBlank() }
     }
 
     private fun String.trimBoundaryBlankLines(): String {

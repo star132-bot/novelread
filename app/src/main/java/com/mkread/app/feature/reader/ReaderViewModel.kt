@@ -146,7 +146,7 @@ class ReaderViewModel(
                     eventChannel.trySend(ReaderEvent.ShowMessage("Unable to update recently opened books"))
                 }
                 val loadedChapters = contentRepository.listChapters(bookId)
-                    .sortedWith(compareBy<ChapterEntity> { it.ordinal }.thenBy { it.id })
+                    .orderedReadableChapters()
                 if (loadedChapters.isEmpty()) {
                     return@launch showError(false, "Book has no readable chapters")
                 }
@@ -573,7 +573,7 @@ class ReaderViewModel(
 
     private suspend fun refreshCurrentChapter(mappedOffset: Int) {
         val refreshedChapters = contentRepository.listChapters(bookId)
-            .sortedWith(compareBy<ChapterEntity> { it.ordinal }.thenBy { it.id })
+            .orderedReadableChapters()
         val currentChapterId = content?.chapter?.id ?: return
         val refreshedIndex = refreshedChapters.indexOfFirst { it.id == currentChapterId }
         if (refreshedIndex < 0) {
@@ -678,6 +678,10 @@ class ReaderViewModel(
     private fun showError(retryable: Boolean, message: String) {
         mutableUiState.value = ReaderUiState.Error(retryable, message)
     }
+
+    private fun List<ChapterEntity>.orderedReadableChapters(): List<ChapterEntity> =
+        filter { chapter -> chapter.characterCount > 0 }
+            .sortedWith(compareBy<ChapterEntity> { it.ordinal }.thenBy { it.id })
 
     private fun pageForOffset(
         offset: Int,

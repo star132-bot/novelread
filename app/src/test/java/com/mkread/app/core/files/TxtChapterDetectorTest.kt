@@ -54,6 +54,16 @@ class TxtChapterDetectorTest {
     }
 
     @Test
+    fun emptyVolumeHeadingsAreNotReturnedAsReadableChapters() {
+        val normalized = "第一卷\n第一章 初见\n第一章正文\n第二卷\n第二章 重逢\n第二章正文"
+
+        val chapters = detector.detect(normalized)
+
+        assertEquals(listOf("第一章 初见", "第二章 重逢"), chapters.map { it.title })
+        assertEquals(listOf("第一章正文", "第二章正文"), chapters.map { it.text })
+    }
+
+    @Test
     fun oneHeadingNearStart_isAccepted_butLateSingleHeadingFallsBack() {
         val nearStart = detector.detect("第1章 开始\n正文")
         val lateHeadingText = "前言内容".repeat(30) + "\n第1章 太晚\n正文"

@@ -1,5 +1,6 @@
 package com.mkread.app.feature.library
 
+import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Sort
 import androidx.compose.material.icons.outlined.Add
@@ -25,11 +27,13 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PlainTooltip
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -46,11 +50,13 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -59,6 +65,13 @@ import androidx.compose.ui.unit.dp
 import com.mkread.app.R
 import com.mkread.app.core.model.BookSummary
 import com.mkread.app.core.model.LibrarySort
+import com.mkread.app.core.database.ShelfFolderEntity
+import com.mkread.app.speech.InstalledVoiceProvider
+import com.mkread.app.speech.InstalledVoiceSummary
+import com.mkread.app.speech.VoiceImportActivity
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 sealed interface LibraryDialog {
     val book: BookSummary
@@ -68,6 +81,8 @@ sealed interface LibraryDialog {
     data class Remove(override val book: BookSummary) : LibraryDialog
 }
 
+private data class FolderNameDialogState(val folder: ShelfFolderEntity?)
+
 @Composable
 fun LibraryRoute(
     viewModel: LibraryViewModel,
@@ -75,13 +90,57 @@ fun LibraryRoute(
     onOpenSpeechDebug: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val state by viewModel.uiState.collectAsState()
+    val folders by viewModel.folders.collectAsState()
+    val selectedFolderId by viewModel.selectedFolderId.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     var dialog by remember { mutableStateOf<LibraryDialog?>(null) }
+    var voiceDialogVisible by remember { mutableStateOf(false) }
+    var installedVoices by remember { mutableStateOf<List<InstalledVoiceSummary>>(emptyList()) }
+    var selectedVoiceId by remember { mutableStateOf(InstalledVoiceProvider.BUILT_IN_VOICE_ID) }
+    var folderNameDialog by remember { mutableStateOf<FolderNameDialogState?>(null) }
+    var movingBook by remember { mutableStateOf<BookSummary?>(null) }
+    var deletingFolder by remember { mutableStateOf<ShelfFolderEntity?>(null) }
     val documentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
         if (uri != null) viewModel.onDocumentPicked(uri)
+    }
+    val voiceLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            context.startActivity(
+                Intent(context, VoiceImportActivity::class.java)
+                    .setAction(Intent.ACTION_VIEW)
+                    .setDataAndType(uri, VOICE_PACKAGE_MIME_TYPE)
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
+            )
+        }
+    }
+    val directoryScanner = remember(context) { AndroidBookDirectoryScanner(context) }
+    val directoryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree(),
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                runCatching { directoryScanner.scan(uri) }
+                    .onSuccess(viewModel::importDirectory)
+                    .onFailure {
+                        snackbarHostState.showSnackbar(context.getString(R.string.import_folder_failed))
+                    }
+            }
+        }
+    }
+    fun openVoiceLibrary() {
+        scope.launch {
+            val provider = InstalledVoiceProvider(context.filesDir)
+            installedVoices = provider.installedVoices()
+            selectedVoiceId = provider.selectedVoiceId()
+            voiceDialogVisible = true
+        }
     }
 
     LaunchedEffect(viewModel) {
@@ -102,12 +161,24 @@ fun LibraryRoute(
         state = state,
         snackbarHostState = snackbarHostState,
         dialog = dialog,
+        folders = folders,
+        selectedFolderId = selectedFolderId,
         onSearchQueryChange = viewModel::onSearchQueryChanged,
         onSortSelected = viewModel::onSortSelected,
         onImport = viewModel::requestImport,
+        onImportDirectory = { directoryLauncher.launch(null) },
+        onCreateFolder = { folderNameDialog = FolderNameDialogState(null) },
+        onRenameFolder = { folder -> folderNameDialog = FolderNameDialogState(folder) },
+        onDeleteFolder = { folder -> deletingFolder = folder },
+        onSelectFolder = viewModel::selectFolder,
+        onImportVoice = {
+            voiceLauncher.launch(arrayOf(VOICE_PACKAGE_MIME_TYPE, "application/zip", "application/octet-stream"))
+        },
+        onManageVoices = ::openVoiceLibrary,
         onOpenBook = onOpenBook,
         onRename = viewModel::requestRename,
         onEditMetadata = viewModel::requestEditMetadata,
+        onMoveToFolder = { book -> movingBook = book },
         onRemove = viewModel::requestRemove,
         onConfirmRename = { book, title ->
             dialog = null
@@ -125,6 +196,71 @@ fun LibraryRoute(
         onOpenSpeechDebug = onOpenSpeechDebug,
         modifier = modifier,
     )
+    if (voiceDialogVisible) {
+        VoiceLibraryDialog(
+            voices = installedVoices,
+            selectedVoiceId = selectedVoiceId,
+            onSelect = { voiceId ->
+                scope.launch {
+                    runCatching {
+                        withContext(Dispatchers.IO) {
+                            InstalledVoiceProvider.select(context.filesDir, voiceId)
+                        }
+                    }.onSuccess {
+                        selectedVoiceId = voiceId
+                        voiceDialogVisible = false
+                        snackbarHostState.showSnackbar(context.getString(R.string.voice_selected))
+                    }.onFailure {
+                        snackbarHostState.showSnackbar(context.getString(R.string.voice_selection_failed))
+                    }
+                }
+            },
+            onDismiss = { voiceDialogVisible = false },
+        )
+    }
+    folderNameDialog?.let { prompt ->
+        FolderNameDialog(
+            initialName = prompt.folder?.name.orEmpty(),
+            title = if (prompt.folder == null) {
+                stringResource(R.string.create_folder)
+            } else {
+                stringResource(R.string.rename_folder)
+            },
+            onConfirm = { name ->
+                prompt.folder?.let { viewModel.renameFolder(it.id, name) }
+                    ?: viewModel.createFolder(name)
+                folderNameDialog = null
+            },
+            onDismiss = { folderNameDialog = null },
+        )
+    }
+    movingBook?.let { book ->
+        MoveBookDialog(
+            book = book,
+            folders = folders,
+            onMove = { folderId ->
+                viewModel.moveBook(book.id, folderId)
+                movingBook = null
+            },
+            onDismiss = { movingBook = null },
+        )
+    }
+    deletingFolder?.let { folder ->
+        AlertDialog(
+            onDismissRequest = { deletingFolder = null },
+            title = { Text(stringResource(R.string.delete_folder_title, folder.name)) },
+            text = { Text(stringResource(R.string.delete_folder_message)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteFolder(folder.id)
+                    deletingFolder = null
+                }) { Text(stringResource(R.string.delete_folder)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { deletingFolder = null }) { Text(stringResource(R.string.cancel)) }
+            },
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -133,12 +269,22 @@ fun LibraryScreen(
     state: LibraryUiState,
     snackbarHostState: SnackbarHostState,
     dialog: LibraryDialog?,
+    folders: List<ShelfFolderEntity>,
+    selectedFolderId: String?,
     onSearchQueryChange: (String) -> Unit,
     onSortSelected: (LibrarySort) -> Unit,
     onImport: () -> Unit,
+    onImportDirectory: () -> Unit,
+    onCreateFolder: () -> Unit,
+    onRenameFolder: (ShelfFolderEntity) -> Unit,
+    onDeleteFolder: (ShelfFolderEntity) -> Unit,
+    onSelectFolder: (String?) -> Unit,
+    onImportVoice: () -> Unit,
+    onManageVoices: () -> Unit,
     onOpenBook: ((String) -> Unit)?,
     onRename: (BookSummary) -> Unit,
     onEditMetadata: (BookSummary) -> Unit,
+    onMoveToFolder: (BookSummary) -> Unit,
     onRemove: (BookSummary) -> Unit,
     onConfirmRename: (BookSummary, String) -> Unit,
     onConfirmMetadata: (BookSummary, String, String?) -> Unit,
@@ -227,18 +373,62 @@ fun LibraryScreen(
                             )
                         }
                     }
-                    if (onOpenSpeechDebug != null) {
-                        Box {
-                            LibraryTooltipIconButton(
-                                label = moreLabel,
-                                onClick = { debugExpanded = true },
-                            ) {
-                                Icon(Icons.Outlined.MoreVert, contentDescription = null)
+                    Box {
+                        LibraryTooltipIconButton(
+                            label = moreLabel,
+                            onClick = { debugExpanded = true },
+                        ) {
+                            Icon(Icons.Outlined.MoreVert, contentDescription = null)
+                        }
+                        DropdownMenu(
+                            expanded = debugExpanded,
+                            onDismissRequest = { debugExpanded = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.create_folder)) },
+                                onClick = {
+                                    debugExpanded = false
+                                    onCreateFolder()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.import_folder)) },
+                                onClick = {
+                                    debugExpanded = false
+                                    onImportDirectory()
+                                },
+                            )
+                            folders.firstOrNull { it.id == selectedFolderId }?.let { selectedFolder ->
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.rename_folder)) },
+                                    onClick = {
+                                        debugExpanded = false
+                                        onRenameFolder(selectedFolder)
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.delete_folder)) },
+                                    onClick = {
+                                        debugExpanded = false
+                                        onDeleteFolder(selectedFolder)
+                                    },
+                                )
                             }
-                            DropdownMenu(
-                                expanded = debugExpanded,
-                                onDismissRequest = { debugExpanded = false },
-                            ) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.voice_library)) },
+                                onClick = {
+                                    debugExpanded = false
+                                    onManageVoices()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.voice_import_action)) },
+                                onClick = {
+                                    debugExpanded = false
+                                    onImportVoice()
+                                },
+                            )
+                            if (onOpenSpeechDebug != null) {
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.debug_speech)) },
                                     onClick = {
@@ -280,9 +470,13 @@ fun LibraryScreen(
             LibraryBody(
                 state = state,
                 onImport = onImport,
+                folders = folders,
+                selectedFolderId = selectedFolderId,
+                onSelectFolder = onSelectFolder,
                 onOpenBook = onOpenBook,
                 onRename = onRename,
                 onEditMetadata = onEditMetadata,
+                onMoveToFolder = onMoveToFolder,
                 onRemove = onRemove,
                 modifier = Modifier.weight(1f),
             )
@@ -310,12 +504,137 @@ fun LibraryScreen(
 }
 
 @Composable
+private fun FolderNameDialog(
+    initialName: String,
+    title: String,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var name by remember(initialName) { mutableStateOf(initialName) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            TextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text(stringResource(R.string.folder_name)) },
+                singleLine = true,
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(name) },
+                enabled = name.isNotBlank(),
+            ) { Text(stringResource(R.string.save)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+        },
+    )
+}
+
+@Composable
+private fun MoveBookDialog(
+    book: BookSummary,
+    folders: List<ShelfFolderEntity>,
+    onMove: (String?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.move_to_folder)) },
+        text = {
+            LazyColumn {
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = book.folderId == null, onClick = { onMove(null) })
+                        Text(stringResource(R.string.unfiled_books))
+                    }
+                }
+                items(count = folders.size, key = { folders[it].id }) { index ->
+                    val folder = folders[index]
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(
+                            selected = book.folderId == folder.id,
+                            onClick = { onMove(folder.id) },
+                        )
+                        Text(folder.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) }
+        },
+    )
+}
+
+@Composable
+private fun VoiceLibraryDialog(
+    voices: List<InstalledVoiceSummary>,
+    selectedVoiceId: String,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val options = listOf(
+        InstalledVoiceSummary(
+            id = InstalledVoiceProvider.BUILT_IN_VOICE_ID,
+            displayName = stringResource(R.string.voice_builtin),
+            languages = listOf("zh-CN", "en"),
+            emotions = listOf("neutral"),
+        ),
+    ) + voices
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.voice_library)) },
+        text = {
+            LazyColumn {
+                items(count = options.size, key = { options[it].id }) { index ->
+                    val voice = options[index]
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(
+                            selected = voice.id == selectedVoiceId,
+                            onClick = { onSelect(voice.id) },
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(voice.displayName, style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                voice.emotions.joinToString(" · "),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) }
+        },
+    )
+}
+
+@Composable
 private fun LibraryBody(
     state: LibraryUiState,
     onImport: () -> Unit,
+    folders: List<ShelfFolderEntity>,
+    selectedFolderId: String?,
+    onSelectFolder: (String?) -> Unit,
     onOpenBook: ((String) -> Unit)?,
     onRename: (BookSummary) -> Unit,
     onEditMetadata: (BookSummary) -> Unit,
+    onMoveToFolder: (BookSummary) -> Unit,
     onRemove: (BookSummary) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -326,11 +645,20 @@ private fun LibraryBody(
         ) {
             CircularProgressIndicator()
         }
-        is LibraryUiState.Empty -> EmptyLibrary(
-            query = state.query,
-            onImport = onImport,
-            modifier = modifier,
-        )
+        is LibraryUiState.Empty -> Column(modifier = modifier.fillMaxWidth()) {
+            if (folders.isNotEmpty()) {
+                FolderFilterRow(
+                    folders = folders,
+                    selectedFolderId = selectedFolderId,
+                    onSelectFolder = onSelectFolder,
+                )
+            }
+            EmptyLibrary(
+                query = state.query,
+                onImport = onImport,
+                modifier = Modifier.weight(1f),
+            )
+        }
         is LibraryUiState.Error -> Box(
             modifier = modifier
                 .fillMaxWidth()
@@ -344,6 +672,16 @@ private fun LibraryBody(
             )
         }
         is LibraryUiState.Content -> Column(modifier = modifier.fillMaxWidth()) {
+            val visibleBooks = if (selectedFolderId == null) {
+                state.books
+            } else {
+                state.books.filter { it.folderId == selectedFolderId }
+            }
+            FolderFilterRow(
+                folders = folders,
+                selectedFolderId = selectedFolderId,
+                onSelectFolder = onSelectFolder,
+            )
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -352,7 +690,7 @@ private fun LibraryBody(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "我的书架 · ${state.books.size}",
+                    text = "我的书架 · ${visibleBooks.size}",
                     style = MaterialTheme.typography.labelLarge,
                 )
                 Text(
@@ -363,18 +701,47 @@ private fun LibraryBody(
             }
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 items(
-                    count = state.books.size,
-                    key = { index -> state.books[index].id },
+                    count = visibleBooks.size,
+                    key = { index -> visibleBooks[index].id },
                 ) { index ->
                     BookRow(
-                        book = state.books[index],
+                        book = visibleBooks[index],
                         onOpenBook = onOpenBook,
                         onRename = onRename,
                         onEditMetadata = onEditMetadata,
+                        onMoveToFolder = onMoveToFolder,
                         onRemove = onRemove,
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun FolderFilterRow(
+    folders: List<ShelfFolderEntity>,
+    selectedFolderId: String?,
+    onSelectFolder: (String?) -> Unit,
+) {
+    LazyRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        item {
+            FilterChip(
+                selected = selectedFolderId == null,
+                onClick = { onSelectFolder(null) },
+                label = { Text(stringResource(R.string.all_books)) },
+            )
+        }
+        items(count = folders.size, key = { folders[it].id }) { index ->
+            val folder = folders[index]
+            FilterChip(
+                selected = selectedFolderId == folder.id,
+                onClick = { onSelectFolder(folder.id) },
+                label = { Text(folder.name, maxLines = 1) },
+            )
         }
     }
 }
@@ -559,3 +926,5 @@ private fun sortName(sort: LibrarySort): String = when (sort) {
     LibrarySort.TITLE -> "按标题"
     LibrarySort.IMPORTED -> "最近导入"
 }
+
+private const val VOICE_PACKAGE_MIME_TYPE = "application/vnd.mkread.voice"

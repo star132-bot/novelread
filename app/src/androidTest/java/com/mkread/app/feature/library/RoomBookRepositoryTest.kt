@@ -141,6 +141,41 @@ class RoomBookRepositoryTest {
     }
 
     @Test
+    fun commitImportedBook_dropsDeletedQueuedFolderButKeepsExistingFolder() = runBlocking {
+        val deletedFolder = repository.getOrCreateFolder("Deleted batch")
+        val existingFolder = repository.getOrCreateFolder("Active batch")
+        assertTrue(repository.deleteFolder(deletedFolder.id))
+
+        repository.commitImportedBook(
+            book("deleted-target", "Deleted target").copy(folderId = deletedFolder.id),
+            emptyList(),
+        )
+        repository.commitImportedBook(
+            book("active-target", "Active target").copy(folderId = existingFolder.id),
+            emptyList(),
+        )
+
+        assertNull(database.bookDao().getById("deleted-target")?.folderId)
+        assertEquals(existingFolder.id, database.bookDao().getById("active-target")?.folderId)
+    }
+
+    @Test
+    fun moveBookToFolder_rejectsDeletedTargetAndDeleteUnfilesAssignedBook() = runBlocking {
+        insert(book("book", "Book"))
+        val deletedFolder = repository.getOrCreateFolder("Deleted")
+        val activeFolder = repository.getOrCreateFolder("Active")
+        assertTrue(repository.deleteFolder(deletedFolder.id))
+
+        assertFalse(repository.moveBookToFolder("book", deletedFolder.id))
+        assertNull(database.bookDao().getById("book")?.folderId)
+        assertTrue(repository.moveBookToFolder("book", activeFolder.id))
+        assertEquals(activeFolder.id, database.bookDao().getById("book")?.folderId)
+
+        assertTrue(repository.deleteFolder(activeFolder.id))
+        assertNull(database.bookDao().getById("book")?.folderId)
+    }
+
+    @Test
     fun removeBook_deletesPrivateFilesThenCascadesRoomRows() = runBlocking {
         insert(book("book", "Book"), listOf(chapter("book", 1)))
         storage.bookIds += "book"

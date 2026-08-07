@@ -397,6 +397,29 @@ class ReaderViewModelTest {
     }
 
     @Test
+    fun tappedTextOffsetStartsNarrationFromContainingSentence() = runTest(dispatcher) {
+        val harness = Harness()
+        val viewModel = harness.viewModel()
+        runCurrent()
+        harness.pagination.requests.single().emit(
+            PaginationBatch(chapterOnePages(), complete = true),
+        )
+        runCurrent()
+
+        val readEvent = async { viewModel.events.first { it is ReaderEvent.ReadFromHere } }
+        viewModel.onAction(ReaderAction.ReadFromOffset(8))
+        runCurrent()
+
+        val state = viewModel.uiState.value as ReaderUiState.Ready
+        assertEquals(5, state.activeSentenceRange?.startInclusive)
+        assertEquals(5, state.characterOffset)
+        assertEquals(null, state.selectedRange)
+        val event = readEvent.await() as ReaderEvent.ReadFromHere
+        assertEquals(CHAPTER_1.id, event.chapterId)
+        assertEquals(5, event.sentence.startInclusive)
+    }
+
+    @Test
     fun playbackSentenceMovesHighlightPageAndSemanticCheckpoint() = runTest(dispatcher) {
         val harness = Harness()
         val viewModel = harness.viewModel()

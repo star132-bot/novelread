@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Before
@@ -210,6 +211,27 @@ class ImportBookWorkerTest {
             listOf("text/plain", "application/epub+zip", "application/octet-stream"),
             BookImportScheduler.SUPPORTED_MIME_TYPES.toList(),
         )
+    }
+
+    @Test
+    fun scheduler_keepsDifferentFolderDestinationsAsDifferentWork() {
+        val names = mutableListOf<String>()
+        val requests = mutableListOf<OneTimeWorkRequest>()
+        val scheduler = BookImportScheduler(
+            workEnqueuer = BookImportScheduler.WorkEnqueuer { name, _, request ->
+                names += name
+                requests += request
+            },
+            documentAccess = RecordingDocumentAccess(openStream = { "text".byteInputStream() }),
+        )
+        val uri = Uri.parse("content://documents/book/same")
+
+        scheduler.enqueue(uri, "Novel.txt", "text/plain", folderId = "folder-a")
+        scheduler.enqueue(uri, "Novel.txt", "text/plain", folderId = "folder-b")
+
+        assertNotEquals(names[0], names[1])
+        assertEquals("folder-a", requests[0].workSpec.input.getString(ImportBookWorker.KEY_FOLDER_ID))
+        assertEquals("folder-b", requests[1].workSpec.input.getString(ImportBookWorker.KEY_FOLDER_ID))
     }
 
     @Test

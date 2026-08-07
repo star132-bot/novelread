@@ -16,6 +16,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.mkread.app.core.database.BookEntity
 import com.mkread.app.core.database.ChapterEntity
+import com.mkread.app.core.database.ShelfFolderEntity
 import com.mkread.app.core.model.BookSummary
 import com.mkread.app.core.model.LibrarySort
 import com.mkread.app.core.model.SourceType
@@ -44,6 +45,16 @@ class LibraryScreenTest {
         composeRule.onAllNodes(
             hasText("导入小说") or hasContentDescription("导入小说"),
         ).assertCountEquals(1)
+    }
+
+    @Test
+    fun emptyShelfStillShowsCreatedFolders() {
+        launchLibrary(
+            books = emptyList(),
+            folders = listOf(FOLDER),
+        )
+
+        composeRule.onNodeWithText(FOLDER.name).assertIsDisplayed()
     }
 
     @Test
@@ -169,9 +180,10 @@ class LibraryScreenTest {
 
     private fun launchLibrary(
         books: List<BookSummary>,
+        folders: List<ShelfFolderEntity> = emptyList(),
         showDebugAction: Boolean = false,
     ): Harness {
-        val repository = FakeBookRepository(books)
+        val repository = FakeBookRepository(books, folders)
         val imports = FakeBookImportManager()
         val viewModel = LibraryViewModel(SavedStateHandle(), repository, imports)
         val harness = Harness(repository, imports)
@@ -199,8 +211,12 @@ class LibraryScreenTest {
         val openedBookIds: MutableList<String> = mutableListOf(),
     )
 
-    private class FakeBookRepository(initialBooks: List<BookSummary>) : BookRepository {
+    private class FakeBookRepository(
+        initialBooks: List<BookSummary>,
+        initialFolders: List<ShelfFolderEntity>,
+    ) : BookRepository {
         private val books = MutableStateFlow(initialBooks)
+        private val folders = MutableStateFlow(initialFolders)
         val queries = mutableListOf<LibraryQuery>()
         val metadataUpdates = mutableListOf<Triple<String, String, String?>>()
         val removedBookIds = mutableListOf<String>()
@@ -209,6 +225,8 @@ class LibraryScreenTest {
             queries += query
             return books
         }
+
+        override fun observeFolders(): Flow<List<ShelfFolderEntity>> = folders
 
         override suspend fun updateMetadata(bookId: String, title: String, author: String?): Boolean {
             normalizeBookMetadata(title, author)
@@ -243,6 +261,11 @@ class LibraryScreenTest {
 
     private companion object {
         val WORK_ID: UUID = UUID.fromString("00000000-0000-0000-0000-000000000008")
+        val FOLDER = ShelfFolderEntity(
+            id = "folder-1",
+            name = "TestBooks",
+            createdAt = 1_786_000_000_000L,
+        )
         val BOOK = BookSummary(
             id = "book-1",
             title = "星河",

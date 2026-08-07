@@ -136,7 +136,11 @@ class Migration2To3Test {
         migrated.close()
 
         database = Room.databaseBuilder(context, MkreadDatabase::class.java, TEST_DATABASE)
-            .addMigrations(MkreadDatabase.MIGRATION_1_2, MkreadDatabase.MIGRATION_2_3)
+            .addMigrations(
+                MkreadDatabase.MIGRATION_1_2,
+                MkreadDatabase.MIGRATION_2_3,
+                MkreadDatabase.MIGRATION_3_4,
+            )
             .allowMainThreadQueries()
             .build()
         database!!.audioCacheDao().insert(

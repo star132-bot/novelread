@@ -6,6 +6,7 @@ data class ImportRequest(
     val displayName: String,
     val mimeType: String?,
     val openStream: () -> InputStream,
+    val folderId: String? = null,
 )
 
 sealed interface ImportResult {

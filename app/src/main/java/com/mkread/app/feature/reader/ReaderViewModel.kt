@@ -109,6 +109,7 @@ class ReaderViewModel(
                 renderLoaded()
             }
             ReaderAction.ReadFromSelection -> readFromSelection()
+            is ReaderAction.ReadFromOffset -> readFromOffset(action.characterOffset, clearSelection = true)
             is ReaderAction.PlaybackSentenceChanged -> updatePlaybackSentence(action.sentenceId)
             ReaderAction.OpenEditor -> {
                 detachFromPlayback()
@@ -302,9 +303,15 @@ class ReaderViewModel(
     }
 
     private fun readFromSelection() {
-        followPlayback = true
         val start = selectedRange?.startInclusive ?: characterOffset
-        val sentence = sentences.nearestBoundary(start) ?: return
+        readFromOffset(start, clearSelection = false)
+    }
+
+    private fun readFromOffset(offset: Int, clearSelection: Boolean) {
+        followPlayback = true
+        val textLength = content?.text?.length ?: return
+        val sentence = sentences.nearestBoundary(offset.coerceIn(0, textLength)) ?: return
+        if (clearSelection) selectedRange = null
         activeSentenceRange = sentence
         characterOffset = sentence.startInclusive
         renderLoaded()

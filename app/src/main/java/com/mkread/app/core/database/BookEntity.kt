@@ -29,4 +29,6 @@ data class BookEntity(
     val modifiedAt: Long,
     @ColumnInfo(name = "last_opened_at")
     val lastOpenedAt: Long?,
+    @ColumnInfo(name = "folder_id", index = true)
+    val folderId: String? = null,
 )

@@ -20,4 +20,5 @@ data class BookSummary(
     val chapterTitle: String?,
     val progressFraction: Float,
     val lastOpenedAt: Long?,
+    val folderId: String? = null,
 )

@@ -59,4 +59,21 @@
     <string name="reader_narration_preparing">正在生成离线语音</string>
     <string name="reader_night_mode">夜间模式</string>
     <string name="reader_night_mode_on">关闭夜间模式</string>
+    <string name="voice_library">音色库</string>
+    <string name="voice_import_action">导入音色</string>
+    <string name="voice_builtin">内置音色</string>
+    <string name="voice_selected">已切换音色</string>
+    <string name="voice_selection_failed">切换音色失败</string>
+    <string name="create_folder">新建文件夹</string>
+    <string name="rename_folder">重命名文件夹</string>
+    <string name="delete_folder">删除文件夹</string>
+    <string name="delete_folder_title">删除“%1$s”？</string>
+    <string name="delete_folder_message">文件夹中的书籍会移到“全部书籍”，不会删除书籍。</string>
+    <string name="import_folder">导入整个文件夹</string>
+    <string name="import_folder_failed">无法读取所选文件夹</string>
+    <string name="all_books">全部书籍</string>
+    <string name="move_to_folder">移动到文件夹</string>
+    <string name="unfiled_books">不放入文件夹</string>
+    <string name="folder_name">文件夹名称</string>
+    <string name="close">关闭</string>
 </resources>

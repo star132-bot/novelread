@@ -386,6 +386,9 @@ private fun ReaderPager(
                 onAction(ReaderAction.SelectionChanged(selection.startInclusive, selection.endExclusive))
                 onAction(ReaderAction.ReadFromSelection)
             },
+            onTextTap = { characterOffset ->
+                onAction(ReaderAction.ReadFromOffset(characterOffset))
+            },
             onCopied = { onCopied(copiedLabel) },
             onPageTap = { zone ->
                 when (zone) {

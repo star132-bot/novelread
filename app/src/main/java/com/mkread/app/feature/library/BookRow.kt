@@ -44,6 +44,7 @@ fun BookRow(
     onOpenBook: ((String) -> Unit)?,
     onRename: (BookSummary) -> Unit,
     onEditMetadata: (BookSummary) -> Unit,
+    onMoveToFolder: (BookSummary) -> Unit,
     onRemove: (BookSummary) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -134,6 +135,13 @@ fun BookRow(
                         onClick = {
                             menuExpanded = false
                             onEditMetadata(book)
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("移动到文件夹") },
+                        onClick = {
+                            menuExpanded = false
+                            onMoveToFolder(book)
                         },
                     )
                     DropdownMenuItem(

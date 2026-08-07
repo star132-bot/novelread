@@ -71,6 +71,7 @@ class OfflineReaderNarrationController(
     private var generationJob: Job? = null
     private var autoPlayRequested = false
     private var activeSession: NarrationSession? = null
+    private var starvationResumeIndex: Int? = null
 
     override val state: StateFlow<ReaderPlaybackUiState> = mutableState.asStateFlow()
 
@@ -89,7 +90,14 @@ class OfflineReaderNarrationController(
     override fun play() {
         autoPlayRequested = true
         withController { controller ->
-            if (controller.playbackState == Player.STATE_ENDED) controller.seekTo(0L)
+            val resumeAt = starvationResumeIndex
+            if (resumeAt != null && resumeAt in 0 until controller.mediaItemCount) {
+                starvationResumeIndex = null
+                controller.seekTo(resumeAt, 0L)
+                controller.prepare()
+            } else if (controller.playbackState == Player.STATE_ENDED) {
+                controller.seekTo(0L)
+            }
             controller.play()
             mutableState.value = mutableState.value.copy(status = ReaderPlaybackStatus.PLAYING)
         }
@@ -167,6 +175,7 @@ class OfflineReaderNarrationController(
                 }
                 assetInstaller.install()
                 var queueAvailable = preserveQueue
+                val startupBuffer = NarrationStartupBuffer<MediaItem>(STARTUP_BUFFER_SENTENCES)
                 queueSource.sentences(
                     reader = session.reader,
                     initialSentence = session.initialSentence,
@@ -188,9 +197,11 @@ class OfflineReaderNarrationController(
                             if (queueAvailable) {
                                 appendToQueue(controller, item)
                             } else {
-                                replaceQueueAndPlay(controller, item)
+                                startupBuffer.add(item)?.let { initialQueue ->
+                                    replaceQueueAndPlay(controller, initialQueue)
+                                    queueAvailable = true
+                                }
                             }
-                            queueAvailable = true
                             true
                         }
                         is GenerationState.Blocked -> {
@@ -204,6 +215,13 @@ class OfflineReaderNarrationController(
                         null -> false
                     }
                 }.collect()
+                if (!queueAvailable) {
+                    startupBuffer.drain().takeIf(List<MediaItem>::isNotEmpty)?.let { initialQueue ->
+                        replaceQueueAndPlay(controller, initialQueue)
+                        queueAvailable = true
+                    }
+                }
+                resumeStarvedQueue(controller, force = true)
                 if (!queueAvailable && generationId == generationCounter.get()) {
                     fail("No readable sentences remain")
                 }
@@ -265,9 +283,10 @@ class OfflineReaderNarrationController(
         plan.resumeAfter
     }
 
-    private suspend fun replaceQueueAndPlay(controller: MediaController, item: MediaItem) {
+    private suspend fun replaceQueueAndPlay(controller: MediaController, items: List<MediaItem>) {
         withContext(Dispatchers.Main.immediate) {
-            controller.setMediaItem(item)
+            starvationResumeIndex = null
+            controller.setMediaItems(items)
             controller.prepare()
             controller.setPlaybackSpeed(mutableState.value.speed)
             if (autoPlayRequested) controller.play()
@@ -276,15 +295,37 @@ class OfflineReaderNarrationController(
 
     private suspend fun appendToQueue(controller: MediaController, item: MediaItem) {
         withContext(Dispatchers.Main.immediate) {
-            val resumeAt = controller.mediaItemCount
             val ended = controller.playbackState == Player.STATE_ENDED
+            val resumeAt = if (ended && autoPlayRequested) {
+                starvationResumeIndex ?: controller.mediaItemCount.also { index ->
+                    starvationResumeIndex = index
+                    mutableState.value = mutableState.value.copy(status = ReaderPlaybackStatus.PREPARING)
+                }
+            } else {
+                null
+            }
             controller.addMediaItem(item)
-            if (ended && autoPlayRequested) {
-                controller.seekTo(resumeAt, 0L)
-                controller.prepare()
-                controller.play()
+            if (resumeAt != null && controller.mediaItemCount - resumeAt >= STARVATION_BUFFER_SENTENCES) {
+                resumeStarvedQueueOnMain(controller, resumeAt)
             }
         }
+    }
+
+    private suspend fun resumeStarvedQueue(controller: MediaController, force: Boolean) {
+        withContext(Dispatchers.Main.immediate) {
+            val resumeAt = starvationResumeIndex ?: return@withContext
+            if (force || controller.mediaItemCount - resumeAt >= STARVATION_BUFFER_SENTENCES) {
+                resumeStarvedQueueOnMain(controller, resumeAt)
+            }
+        }
+    }
+
+    private fun resumeStarvedQueueOnMain(controller: MediaController, resumeAt: Int) {
+        if (!autoPlayRequested || resumeAt !in 0 until controller.mediaItemCount) return
+        starvationResumeIndex = null
+        controller.seekTo(resumeAt, 0L)
+        controller.prepare()
+        controller.play()
     }
 
     private suspend fun finishIfPlayerEnded() {
@@ -372,6 +413,10 @@ class OfflineReaderNarrationController(
     }
 
     private val playerListener = object : Player.Listener {
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            autoPlayRequested = updatedAutoPlayRequest(autoPlayRequested, playWhenReady, reason)
+        }
+
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             val current = mutableState.value
             if (current.status == ReaderPlaybackStatus.PREPARING && !isPlaying) return
@@ -411,10 +456,22 @@ class OfflineReaderNarrationController(
         const val CONTROLLER_TIMEOUT_SECONDS = 20L
         const val MIN_SPEED = 0.5f
         const val MAX_SPEED = 3f
+        const val STARTUP_BUFFER_SENTENCES = 3
+        const val STARVATION_BUFFER_SENTENCES = 2
         val REBUILDABLE_STATUSES = setOf(
             ReaderPlaybackStatus.PREPARING,
             ReaderPlaybackStatus.PLAYING,
             ReaderPlaybackStatus.PAUSED,
         )
     }
+}
+
+internal fun updatedAutoPlayRequest(
+    current: Boolean,
+    playWhenReady: Boolean,
+    reason: Int,
+): Boolean = if (reason == Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST) {
+    playWhenReady
+} else {
+    current
 }

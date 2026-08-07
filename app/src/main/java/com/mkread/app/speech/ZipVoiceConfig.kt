@@ -19,7 +19,7 @@ data class ZipVoicePaths(
         )
         val model = OfflineTtsModelConfig(
             zipvoice = zipVoice,
-            numThreads = 2,
+            numThreads = 4,
             debug = false,
             provider = "cpu",
         )

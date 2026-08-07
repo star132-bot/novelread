@@ -128,6 +128,46 @@ class SelectablePageTextTest {
     }
 
     @Test
+    fun tappingRenderedTextReportsTheChapterCharacterOffset() {
+        val text = "First sentence. Second sentence."
+        val pageStart = 40
+        val harness = launch(
+            text = "x".repeat(pageStart) + text,
+            page = PageRange(0, pageStart, pageStart + text.length),
+        )
+        val localOffset = text.indexOf("Second") + 3
+
+        composeRule.runOnIdle {
+            val line = harness.view.layout.getLineForOffset(localOffset)
+            val x = harness.view.totalPaddingLeft +
+                harness.view.layout.getPrimaryHorizontal(localOffset)
+            val y = harness.view.totalPaddingTop +
+                (harness.view.layout.getLineTop(line) + harness.view.layout.getLineBottom(line)) / 2f
+            dispatchTap(harness.view, x, y)
+        }
+
+        assertEquals(listOf(pageStart + localOffset), harness.textTaps)
+        assertTrue(harness.pageTaps.isEmpty())
+    }
+
+    @Test
+    fun tappingBlankSpaceBesideShortLineKeepsThePageTurnZone() {
+        val text = "Short line\nA much longer second line that establishes the content width."
+        val harness = launch(text = text, page = PageRange(0, 0, text.length))
+
+        composeRule.runOnIdle {
+            val line = 0
+            val x = harness.view.width - harness.view.totalPaddingRight - 1f
+            val y = harness.view.totalPaddingTop +
+                (harness.view.layout.getLineTop(line) + harness.view.layout.getLineBottom(line)) / 2f
+            dispatchTap(harness.view, x, y)
+        }
+
+        assertTrue(harness.textTaps.isEmpty())
+        assertEquals(listOf(ReaderPageTap.Next), harness.pageTaps)
+    }
+
+    @Test
     fun activeHighlightUpdateDoesNotChangeMeasuredDimensions() {
         val active = mutableStateOf<SentenceRange?>(null)
         val text = "First sentence. Second sentence."
@@ -167,6 +207,7 @@ class SelectablePageTextTest {
                     onSelectionChanged = { selected.value = it },
                     onEditChapter = {},
                     onReadFromHere = {},
+                    onTextTap = {},
                     onCopied = {},
                     onPageTap = {},
                 )
@@ -206,6 +247,7 @@ class SelectablePageTextTest {
         val editSelection = AtomicReference<ReaderTextRange?>()
         val readSelection = AtomicReference<ReaderTextRange?>()
         val copied = AtomicBoolean(false)
+        val textTaps = mutableListOf<Int>()
         val pageTaps = mutableListOf<ReaderPageTap>()
         composeRule.setContent {
             MkreadTheme {
@@ -218,6 +260,7 @@ class SelectablePageTextTest {
                     onSelectionChanged = selection::set,
                     onEditChapter = editSelection::set,
                     onReadFromHere = readSelection::set,
+                    onTextTap = textTaps::add,
                     onCopied = { copied.set(true) },
                     onPageTap = pageTaps::add,
                     modifier = Modifier,
@@ -227,12 +270,15 @@ class SelectablePageTextTest {
         composeRule.waitForIdle()
         val view = findTextView()
         assertTrue(view.height > 0)
-        return Harness(view, selection, editSelection, readSelection, copied, pageTaps)
+        return Harness(view, selection, editSelection, readSelection, copied, textTaps, pageTaps)
     }
 
     private fun dispatchTap(view: SelectableReaderTextView, x: Float) {
+        dispatchTap(view, x, view.height / 2f)
+    }
+
+    private fun dispatchTap(view: SelectableReaderTextView, x: Float, y: Float) {
         val time = SystemClock.uptimeMillis()
-        val y = view.height / 2f
         MotionEvent.obtain(time, time, MotionEvent.ACTION_DOWN, x, y, 0).also { event ->
             view.dispatchTouchEvent(event)
             event.recycle()
@@ -273,6 +319,7 @@ class SelectablePageTextTest {
         val editSelection: AtomicReference<ReaderTextRange?>,
         val readSelection: AtomicReference<ReaderTextRange?>,
         val copied: AtomicBoolean,
+        val textTaps: MutableList<Int>,
         val pageTaps: MutableList<ReaderPageTap>,
     )
 

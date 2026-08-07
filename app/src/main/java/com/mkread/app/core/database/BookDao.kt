@@ -97,7 +97,8 @@ private const val LIBRARY_PROJECTION = """
             LIMIT 1
         ) AS chapterTitle,
         CAST(0 AS REAL) AS progressFraction,
-        books.last_opened_at AS lastOpenedAt
+        books.last_opened_at AS lastOpenedAt,
+        books.folder_id AS folderId
     FROM books
     WHERE :escapedQuery = ''
         OR books.title LIKE '%' || :escapedQuery || '%' ESCAPE '\'

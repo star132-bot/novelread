@@ -120,6 +120,7 @@ class ImportBookUseCase(
                 storage.copySource(source, staging, sourceExtension(request.displayName))
             }
             repository.findBookIdBySourceHash(copied.sha256)?.let { existingBookId ->
+                request.folderId?.let { repository.moveBookToFolder(existingBookId, it) }
                 storage.discard(staging)
                 return ImportResult.Duplicate(existingBookId)
             }
@@ -175,6 +176,7 @@ class ImportBookUseCase(
                     importedAt = timestamp,
                     modifiedAt = timestamp,
                     lastOpenedAt = null,
+                    folderId = request.folderId,
                 ),
                 chapters = storedChapters.mapIndexed { index, stored ->
                     ChapterEntity(
@@ -194,6 +196,9 @@ class ImportBookUseCase(
             throw failure
         } catch (failure: DuplicateSourceException) {
             compensate(staging, promoted, bookId)
+            if (failure.existingBookId != null && request.folderId != null) {
+                repository.moveBookToFolder(failure.existingBookId, request.folderId)
+            }
             return failure.existingBookId?.let(ImportResult::Duplicate)
                 ?: ImportResult.Failure(
                     ImportFailureCode.INTERNAL_COMMIT,

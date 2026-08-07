@@ -88,13 +88,19 @@ class BookImportScheduler internal constructor(
 
     override fun enqueue(uri: Uri): UUID {
         val document = documentAccess.describe(uri)
-        return enqueue(uri, document.displayName, document.mimeType)
+        return enqueue(uri, document.displayName, document.mimeType, folderId = null)
+    }
+
+    override fun enqueueToFolder(uri: Uri, folderId: String): UUID {
+        val document = documentAccess.describe(uri)
+        return enqueue(uri, document.displayName, document.mimeType, folderId)
     }
 
     fun enqueue(
         uri: Uri,
         displayName: String,
         mimeType: String?,
+        folderId: String? = null,
     ): UUID {
         require(uri.scheme == "content") { "Only content documents can be imported" }
         val normalizedName = displayName.trim()
@@ -107,6 +113,7 @@ class BookImportScheduler internal constructor(
                     displayName = normalizedName,
                     mimeType = mimeType,
                     permissionPersisted = permissionPersisted,
+                    folderId = folderId,
                 ),
             )
             .setBackoffCriteria(
@@ -121,7 +128,7 @@ class BookImportScheduler internal constructor(
         }
         try {
             workEnqueuer.enqueue(
-                uniqueWorkName(uri, normalizedName),
+                uniqueWorkName(uri, normalizedName, folderId),
                 ExistingWorkPolicy.KEEP,
                 request,
             )
@@ -146,8 +153,8 @@ class BookImportScheduler internal constructor(
         const val IMPORT_TAG = "book-import"
         private const val MIN_BACKOFF_SECONDS = 10L
 
-        fun uniqueWorkName(uri: Uri, displayName: String): String {
-            val identity = "$uri\u0000$displayName".toByteArray(Charsets.UTF_8)
+        fun uniqueWorkName(uri: Uri, displayName: String, folderId: String? = null): String {
+            val identity = "$uri\u0000$displayName\u0000${folderId.orEmpty()}".toByteArray(Charsets.UTF_8)
             val digest = MessageDigest.getInstance("SHA-256").digest(identity)
             return "import-" + digest.joinToString("") { byte -> "%02x".format(byte) }
         }

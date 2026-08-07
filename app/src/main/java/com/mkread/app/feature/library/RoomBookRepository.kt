@@ -5,12 +5,14 @@ import androidx.room.withTransaction
 import com.mkread.app.core.database.BookEntity
 import com.mkread.app.core.database.ChapterEntity
 import com.mkread.app.core.database.MkreadDatabase
+import com.mkread.app.core.database.ShelfFolderEntity
 import com.mkread.app.core.database.escapeLikePattern
 import com.mkread.app.core.files.BookStorage
 import com.mkread.app.core.model.BookSummary
 import com.mkread.app.core.model.LibrarySort
 import java.util.concurrent.CancellationException
 import java.util.concurrent.ConcurrentHashMap
+import java.util.UUID
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -35,7 +37,13 @@ class RoomBookRepository(
     ) {
         try {
             database.withTransaction {
-                database.bookDao().insertBookWithChapters(book, chapters)
+                val validFolderId = book.folderId?.takeIf { folderId ->
+                    database.shelfFolderDao().getById(folderId) != null
+                }
+                database.bookDao().insertBookWithChapters(
+                    book = book.copy(folderId = validFolderId),
+                    chapters = chapters,
+                )
             }
             diagnosticTombstones.remove(book.id)
         } catch (failure: SQLiteConstraintException) {
@@ -75,6 +83,34 @@ class RoomBookRepository(
         if (isHidden(bookId)) return false
         return database.bookDao().updateLastOpened(bookId, clock()) > 0
     }
+
+    override fun observeFolders(): Flow<List<ShelfFolderEntity>> =
+        database.shelfFolderDao().observeAll()
+
+    override suspend fun getOrCreateFolder(name: String): ShelfFolderEntity {
+        val normalized = normalizeFolderName(name)
+        database.shelfFolderDao().getByName(normalized)?.let { return it }
+        val folder = ShelfFolderEntity(
+            id = UUID.randomUUID().toString(),
+            name = normalized,
+            createdAt = clock(),
+        )
+        return try {
+            database.shelfFolderDao().insert(folder)
+            folder
+        } catch (failure: SQLiteConstraintException) {
+            database.shelfFolderDao().getByName(normalized) ?: throw failure
+        }
+    }
+
+    override suspend fun renameFolder(folderId: String, name: String): Boolean =
+        database.shelfFolderDao().rename(folderId, normalizeFolderName(name)) > 0
+
+    override suspend fun deleteFolder(folderId: String): Boolean =
+        database.shelfFolderDao().deleteAndUnfileBooks(folderId)
+
+    override suspend fun moveBookToFolder(bookId: String, folderId: String?): Boolean =
+        database.shelfFolderDao().moveBook(bookId, folderId) > 0
 
     override suspend fun removeBook(bookId: String): Boolean = withContext(ioDispatcher) {
         if (!deletionGuard.add(bookId) || bookId in diagnosticTombstones) {
@@ -142,4 +178,11 @@ class RoomBookRepository(
 
     private fun isHidden(bookId: String): Boolean =
         bookId in deletionGuard || bookId in diagnosticTombstones
+
+    private fun normalizeFolderName(name: String): String {
+        val normalized = name.normalizeBookWhitespace()
+        require(normalized.isNotEmpty()) { "Folder name is required" }
+        require(normalized.codePointCount(0, normalized.length) <= 80) { "Folder name is too long" }
+        return normalized
+    }
 }

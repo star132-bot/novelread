@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.CreationExtras
 import com.mkread.app.core.model.BookSummary
 import com.mkread.app.core.model.LibrarySort
+import com.mkread.app.core.database.ShelfFolderEntity
 import java.util.UUID
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -24,12 +25,16 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 interface BookImportManager {
     val updates: Flow<ImportWorkUpdate>
 
     fun enqueue(uri: Uri): UUID
+
+    fun enqueueToFolder(uri: Uri, folderId: String): UUID = enqueue(uri)
 }
 
 sealed interface ImportWorkUpdate {
@@ -128,6 +133,10 @@ class LibraryViewModel(
 
     val uiState: StateFlow<LibraryUiState> = _uiState.asStateFlow()
     val events: Flow<LibraryEvent> = eventChannel.receiveAsFlow()
+    val folders: StateFlow<List<ShelfFolderEntity>> = repository.observeFolders()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), emptyList())
+    private val mutableSelectedFolderId = MutableStateFlow<String?>(null)
+    val selectedFolderId: StateFlow<String?> = mutableSelectedFolderId.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -198,9 +207,67 @@ class LibraryViewModel(
 
     fun onDocumentPicked(uri: Uri) {
         try {
-            importManager.enqueue(uri)
+            mutableSelectedFolderId.value?.let { folderId ->
+                importManager.enqueueToFolder(uri, folderId)
+            } ?: importManager.enqueue(uri)
         } catch (failure: Exception) {
             showSnackbar("无法开始导入，请重新选择文件")
+        }
+    }
+
+    fun selectFolder(folderId: String?) {
+        mutableSelectedFolderId.value = folderId
+    }
+
+    fun createFolder(name: String) {
+        viewModelScope.launch {
+            runCatching { repository.getOrCreateFolder(name) }
+                .onSuccess { folder ->
+                    mutableSelectedFolderId.value = folder.id
+                    showSnackbar("文件夹已创建")
+                }
+                .onFailure { showSnackbar("无法创建文件夹，请检查名称") }
+        }
+    }
+
+    fun importDirectory(scan: BookDirectoryScan) {
+        viewModelScope.launch {
+            if (scan.documents.isEmpty()) {
+                showSnackbar("文件夹中没有 TXT 或 EPUB 文件")
+                return@launch
+            }
+            runCatching {
+                val folder = repository.getOrCreateFolder(scan.name)
+                scan.documents.forEach { uri -> importManager.enqueueToFolder(uri, folder.id) }
+                folder
+            }.onSuccess { folder ->
+                mutableSelectedFolderId.value = folder.id
+                showSnackbar("已开始导入 ${scan.documents.size} 个文件")
+            }.onFailure {
+                showSnackbar("无法开始文件夹导入")
+            }
+        }
+    }
+
+    fun moveBook(bookId: String, folderId: String?) {
+        viewModelScope.launch {
+            if (!repository.moveBookToFolder(bookId, folderId)) showSnackbar("移动书籍失败")
+        }
+    }
+
+    fun renameFolder(folderId: String, name: String) {
+        viewModelScope.launch {
+            runCatching { repository.renameFolder(folderId, name) }
+                .onFailure { showSnackbar("重命名文件夹失败") }
+        }
+    }
+
+    fun deleteFolder(folderId: String) {
+        viewModelScope.launch {
+            if (repository.deleteFolder(folderId)) {
+                if (mutableSelectedFolderId.value == folderId) mutableSelectedFolderId.value = null
+                showSnackbar("文件夹已删除，书籍已移到全部书籍")
+            }
         }
     }
 

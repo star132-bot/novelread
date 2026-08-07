@@ -51,6 +51,7 @@ class AppContainer(
     ).addMigrations(
         MkreadDatabase.MIGRATION_1_2,
         MkreadDatabase.MIGRATION_2_3,
+        MkreadDatabase.MIGRATION_3_4,
     ).build()
     val storage = FileBookStorage(context.filesDir, context.cacheDir)
     val audioCacheRepository = RoomAudioCacheRepository(

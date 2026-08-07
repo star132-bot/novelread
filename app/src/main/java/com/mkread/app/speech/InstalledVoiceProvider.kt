@@ -11,6 +11,13 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
+data class InstalledVoiceSummary(
+    val id: String,
+    val displayName: String,
+    val languages: List<String>,
+    val emotions: List<String>,
+)
+
 class InstalledVoiceProvider(
     private val filesDir: File,
     private val fallback: NarrationVoiceProvider = BuiltInVoiceProvider(filesDir),
@@ -20,7 +27,7 @@ class InstalledVoiceProvider(
 
     override suspend fun resolve(voiceId: String?, styleId: String): Result<NarrationVoice> {
         val selectedId = voiceId ?: selectedVoiceId()
-        if (selectedId == null || selectedId == BUILT_IN_VOICE_ID) {
+        if (selectedId == BUILT_IN_VOICE_ID) {
             return fallback.resolve(voiceId, styleId)
         }
         val installed = withContext(ioDispatcher) {
@@ -31,12 +38,36 @@ class InstalledVoiceProvider(
 
     override suspend fun builtInNeutral(): Result<NarrationVoice> = fallback.builtInNeutral()
 
-    private suspend fun selectedVoiceId(): String? = withContext(ioDispatcher) {
+    suspend fun selectedVoiceId(): String = withContext(ioDispatcher) {
         File(voicesRoot, SELECTION_FILE_NAME)
             .takeIf(File::isFile)
             ?.readText(Charsets.UTF_8)
             ?.trim()
             ?.takeIf(VOICE_ID::matches)
+            ?: BUILT_IN_VOICE_ID
+    }
+
+    suspend fun installedVoices(): List<InstalledVoiceSummary> = withContext(ioDispatcher) {
+        voicesRoot.listFiles().orEmpty()
+            .asSequence()
+            .filter { it.isDirectory && VOICE_ID.matches(it.name) && it.name != BUILT_IN_VOICE_ID }
+            .mapNotNull { root -> runCatching { root.readSummary() }.getOrNull() }
+            .sortedBy { it.displayName.lowercase(Locale.ROOT) }
+            .toList()
+    }
+
+    private fun File.readSummary(): InstalledVoiceSummary {
+        val manifest = Json.parseToJsonElement(resolve(MANIFEST_FILE_NAME).readText(Charsets.UTF_8)) as? JsonObject
+            ?: error("Voice manifest is invalid")
+        val id = manifest.string("id")
+        require(id == name) { "Voice manifest id does not match" }
+        val languages = (manifest["languages"] as? JsonArray)
+            ?.map { (it as? JsonPrimitive)?.content ?: error("Voice language is invalid") }
+            ?: error("Voice languages are missing")
+        val emotions = (manifest["styles"] as? JsonArray)
+            ?.map { style -> (style as? JsonObject)?.string("emotion") ?: error("Voice style is invalid") }
+            ?: error("Voice styles are missing")
+        return InstalledVoiceSummary(id, manifest.string("displayName"), languages, emotions)
     }
 
     private fun loadInstalledVoice(voiceId: String, requestedStyle: String): NarrationVoice {
@@ -102,7 +133,7 @@ class InstalledVoiceProvider(
     companion object {
         const val SELECTION_FILE_NAME = "selected-voice.id"
         private const val VOICES_DIRECTORY = "voices"
-        private const val BUILT_IN_VOICE_ID = "builtin-dev"
+        const val BUILT_IN_VOICE_ID = "builtin-dev"
         private const val MANIFEST_FILE_NAME = "manifest.json"
         private const val CHECKSUMS_FILE_NAME = "checksums.json"
         private const val NEUTRAL_STYLE = "neutral"
@@ -112,7 +143,9 @@ class InstalledVoiceProvider(
         fun select(filesDir: File, voiceId: String) {
             require(VOICE_ID.matches(voiceId)) { "Voice id is invalid" }
             val voicesRoot = File(filesDir, VOICES_DIRECTORY)
-            require(File(voicesRoot, voiceId).isDirectory) { "Voice is not installed" }
+            require(voiceId == BUILT_IN_VOICE_ID || File(voicesRoot, voiceId).isDirectory) {
+                "Voice is not installed"
+            }
             require(voicesRoot.isDirectory || voicesRoot.mkdirs()) { "Voice directory is unavailable" }
             File(voicesRoot, SELECTION_FILE_NAME).writeText(voiceId, Charsets.UTF_8)
         }

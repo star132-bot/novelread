@@ -46,6 +46,7 @@ fun SelectablePageText(
     onSelectionChanged: (ReaderTextRange?) -> Unit,
     onEditChapter: (ReaderTextRange) -> Unit,
     onReadFromHere: (ReaderTextRange) -> Unit,
+    onTextTap: (Int) -> Unit,
     onCopied: () -> Unit,
     onPageTap: (ReaderPageTap) -> Unit,
     modifier: Modifier = Modifier,
@@ -53,6 +54,7 @@ fun SelectablePageText(
     val currentSelectionChanged = rememberUpdatedState(onSelectionChanged)
     val currentEditChapter = rememberUpdatedState(onEditChapter)
     val currentReadFromHere = rememberUpdatedState(onReadFromHere)
+    val currentTextTap = rememberUpdatedState(onTextTap)
     val currentCopied = rememberUpdatedState(onCopied)
     val currentPageTap = rememberUpdatedState(onPageTap)
     val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
@@ -68,6 +70,7 @@ fun SelectablePageText(
                 selectionChangedListener = { currentSelectionChanged.value(it) }
                 editChapterListener = { currentEditChapter.value(it) }
                 readFromHereListener = { currentReadFromHere.value(it) }
+                textTapListener = { currentTextTap.value(it) }
                 copiedListener = { currentCopied.value() }
                 pageTapListener = { currentPageTap.value(it) }
             }
@@ -76,6 +79,7 @@ fun SelectablePageText(
             view.selectionChangedListener = { currentSelectionChanged.value(it) }
             view.editChapterListener = { currentEditChapter.value(it) }
             view.readFromHereListener = { currentReadFromHere.value(it) }
+            view.textTapListener = { currentTextTap.value(it) }
             view.copiedListener = { currentCopied.value() }
             view.pageTapListener = { currentPageTap.value(it) }
             view.bind(
@@ -99,6 +103,7 @@ class SelectableReaderTextView(context: Context) : TextView(context) {
     var selectionChangedListener: (ReaderTextRange?) -> Unit = {}
     var editChapterListener: (ReaderTextRange) -> Unit = {}
     var readFromHereListener: (ReaderTextRange) -> Unit = {}
+    var textTapListener: (Int) -> Unit = {}
     var copiedListener: () -> Unit = {}
     var pageTapListener: (ReaderPageTap) -> Unit = {}
 
@@ -117,6 +122,12 @@ class SelectableReaderTextView(context: Context) : TextView(context) {
 
             override fun onSingleTapUp(event: MotionEvent): Boolean {
                 if (hasReaderSelection()) return false
+                val textOffset = chapterOffsetAt(event)
+                if (textOffset != null) {
+                    performClick()
+                    textTapListener(textOffset)
+                    return true
+                }
                 val zone = when {
                     event.x < width * PREVIOUS_TAP_FRACTION -> ReaderPageTap.Previous
                     event.x > width * NEXT_TAP_FRACTION -> ReaderPageTap.Next
@@ -271,6 +282,21 @@ class SelectableReaderTextView(context: Context) : TextView(context) {
 
     private fun hasReaderSelection(): Boolean = selectedChapterRange() != null
 
+    private fun chapterOffsetAt(event: MotionEvent): Int? {
+        val textLayout = layout ?: return null
+        val layoutX = event.x - totalPaddingLeft + scrollX
+        val layoutY = event.y - totalPaddingTop + scrollY
+        if (layoutX !in 0f..textLayout.width.toFloat() || layoutY !in 0f..textLayout.height.toFloat()) {
+            return null
+        }
+        val line = textLayout.getLineForVertical(layoutY.toInt())
+        val lineStart = minOf(textLayout.getLineLeft(line), textLayout.getLineRight(line))
+        val lineEnd = maxOf(textLayout.getLineLeft(line), textLayout.getLineRight(line))
+        val hitSlop = TEXT_HIT_SLOP_DP * resources.displayMetrics.density
+        if (layoutX !in (lineStart - hitSlop)..(lineEnd + hitSlop)) return null
+        return pageStartOffset + getOffsetForPosition(event.x, event.y).coerceIn(0, text.length)
+    }
+
     private fun copySelection(): Boolean {
         val localStart = minOf(selectionStart, selectionEnd)
         val localEnd = maxOf(selectionStart, selectionEnd)
@@ -325,6 +351,7 @@ class SelectableReaderTextView(context: Context) : TextView(context) {
         private const val READ_ORDER = 101
         private const val PREVIOUS_TAP_FRACTION = 0.28f
         private const val NEXT_TAP_FRACTION = 0.72f
+        private const val TEXT_HIT_SLOP_DP = 4f
         private const val BASE_DENSITY_DPI = 160f
         private const val NO_HIGHLIGHT = -1
         private val FINISHING_ACTIONS = setOf(

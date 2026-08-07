@@ -20,7 +20,7 @@ class ZipVoiceConfigTest {
         assertEquals(File(modelRoot, "espeak-ng-data").path, zipVoice.dataDir)
         assertEquals(File(modelRoot, "lexicon.txt").path, zipVoice.lexicon)
         assertEquals("cpu", config.model.provider)
-        assertEquals(2, config.model.numThreads)
+        assertEquals(4, config.model.numThreads)
         assertEquals(1, config.maxNumSentences)
         assertEquals(0.2f, config.silenceScale)
     }

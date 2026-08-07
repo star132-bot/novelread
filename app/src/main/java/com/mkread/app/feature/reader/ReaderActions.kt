@@ -24,6 +24,8 @@ sealed interface ReaderAction {
 
     data object ReadFromSelection : ReaderAction
 
+    data class ReadFromOffset(val characterOffset: Int) : ReaderAction
+
     data class PlaybackSentenceChanged(val sentenceId: SentenceId?) : ReaderAction
 
     data object OpenEditor : ReaderAction

@@ -11,8 +11,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ChapterEntity::class,
         ReadingPositionEntity::class,
         AudioCacheEntity::class,
+        ShelfFolderEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class MkreadDatabase : RoomDatabase() {
@@ -23,6 +24,8 @@ abstract class MkreadDatabase : RoomDatabase() {
     abstract fun readingPositionDao(): ReadingPositionDao
 
     abstract fun audioCacheDao(): AudioCacheDao
+
+    abstract fun shelfFolderDao(): ShelfFolderDao
 
     companion object {
         val MIGRATION_1_2: Migration = object : Migration(1, 2) {
@@ -81,6 +84,29 @@ abstract class MkreadDatabase : RoomDatabase() {
                 database.execSQL(
                     "CREATE INDEX IF NOT EXISTS `index_audio_cache_chapterId` " +
                         "ON `audio_cache` (`chapterId`)",
+                )
+            }
+        }
+
+        val MIGRATION_3_4: Migration = object : Migration(3, 4) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `shelf_folders` (
+                        `id` TEXT NOT NULL,
+                        `name` TEXT COLLATE NOCASE NOT NULL,
+                        `created_at` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent(),
+                )
+                database.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_shelf_folders_name` " +
+                        "ON `shelf_folders` (`name`)",
+                )
+                database.execSQL("ALTER TABLE `books` ADD COLUMN `folder_id` TEXT")
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_books_folder_id` ON `books` (`folder_id`)",
                 )
             }
         }

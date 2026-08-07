@@ -94,6 +94,7 @@ class SpeechGenerationCoordinator(
                 voicePackageSha256 = voice.packageSha256,
                 styleId = voice.styleId,
                 qualityId = quality.cacheId,
+                generationConfigurationVersion = GENERATION_CONFIGURATION_VERSION,
             ),
         )
         cache.find(key, nowMillis())?.let { cached ->
@@ -136,6 +137,7 @@ class SpeechGenerationCoordinator(
                 partial.delete()
                 return@withLock Attempt.Failed(generated.exceptionOrNull().safeMessage())
             }
+            runCatching { WaveSilenceTrimmer.trimInPlace(partial) }
 
             try {
                 val now = nowMillis()
@@ -150,6 +152,7 @@ class SpeechGenerationCoordinator(
                         voicePackageSha256 = voice.packageSha256,
                         styleId = voice.styleId,
                         qualityId = quality.cacheId,
+                        generationVersion = GENERATION_CONFIGURATION_VERSION,
                         lastAccessedAt = now,
                         protectedUntil = now + PROTECTION_MILLIS,
                     ),
@@ -213,6 +216,7 @@ class SpeechGenerationCoordinator(
 
     private companion object {
         const val PREFETCH_COUNT = 3
+        const val GENERATION_CONFIGURATION_VERSION = 2
         const val PROTECTION_MILLIS = 10 * 60 * 1_000L
         const val MIN_CACHE_BYTES = 100L * 1024 * 1024
         const val MAX_CACHE_BYTES = 1024L * 1024 * 1024

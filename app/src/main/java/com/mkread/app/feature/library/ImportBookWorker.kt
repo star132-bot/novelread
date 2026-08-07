@@ -43,6 +43,7 @@ class ImportBookWorker(
                     displayName = displayName,
                     mimeType = inputData.getString(KEY_MIME_TYPE),
                     openStream = { documentAccess.openInputStream(uri) },
+                    folderId = inputData.getString(KEY_FOLDER_ID),
                 ),
             )
             return when (result) {
@@ -98,6 +99,7 @@ class ImportBookWorker(
         const val KEY_DISPLAY_NAME = "display_name"
         const val KEY_MIME_TYPE = "mime_type"
         const val KEY_PERMISSION_PERSISTED = "permission_persisted"
+        const val KEY_FOLDER_ID = "folder_id"
         const val KEY_STATUS = "status"
         const val KEY_BOOK_ID = "book_id"
         const val KEY_FAILURE_CODE = "failure_code"
@@ -111,12 +113,14 @@ class ImportBookWorker(
             displayName: String,
             mimeType: String?,
             permissionPersisted: Boolean,
-        ): Data = workDataOf(
-            KEY_URI to uri.toString(),
-            KEY_DISPLAY_NAME to displayName,
-            KEY_MIME_TYPE to mimeType,
-            KEY_PERMISSION_PERSISTED to permissionPersisted,
-        )
+            folderId: String? = null,
+        ): Data = Data.Builder()
+            .putString(KEY_URI, uri.toString())
+            .putString(KEY_DISPLAY_NAME, displayName)
+            .putString(KEY_MIME_TYPE, mimeType)
+            .putBoolean(KEY_PERMISSION_PERSISTED, permissionPersisted)
+            .apply { if (folderId != null) putString(KEY_FOLDER_ID, folderId) }
+            .build()
     }
 }
 

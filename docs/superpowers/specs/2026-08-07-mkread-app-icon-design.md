@@ -22,10 +22,10 @@ The supplied image is a mood and color reference only. The generated character, 
 
 ## Generation
 
-- Use the `imagegen2` workflow with a square 2K, high-quality output suitable as the production master.
+- Use the `imagegen2` workflow with a square image of at least 1K suitable as the production master.
 - Use the supplied image only as a style reference and explicitly request an original character and composition.
 - Generate one recommended master first, inspect it, and only regenerate if it has illegible details, malformed anatomy, a watermark, unintended text, or unsafe cropping.
-- Generate the production master as a transparent PNG. Android supplies a solid warm-ivory `#FFF7EA` background layer so masks never expose square image edges.
+- Generate a uniform warm-ivory master and derive a transparent foreground from its connected background. Android supplies the sampled `#FDF9E5` background layer so masks never expose square image edges.
 
 ## Android Integration
 

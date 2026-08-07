@@ -10,14 +10,18 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Sort
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
@@ -83,6 +87,11 @@ sealed interface LibraryDialog {
 
 private data class FolderNameDialogState(val folder: ShelfFolderEntity?)
 
+private data class FragmentAssemblyDialogState(
+    val folder: ShelfFolderEntity,
+    val fragments: List<BookFragmentSource>,
+)
+
 @Composable
 fun LibraryRoute(
     viewModel: LibraryViewModel,
@@ -103,6 +112,7 @@ fun LibraryRoute(
     var folderNameDialog by remember { mutableStateOf<FolderNameDialogState?>(null) }
     var movingBook by remember { mutableStateOf<BookSummary?>(null) }
     var deletingFolder by remember { mutableStateOf<ShelfFolderEntity?>(null) }
+    var fragmentAssembly by remember { mutableStateOf<FragmentAssemblyDialogState?>(null) }
     val documentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
@@ -149,6 +159,7 @@ fun LibraryRoute(
                 LibraryEvent.OpenDocumentPicker -> documentLauncher.launch(
                     BookImportScheduler.SUPPORTED_MIME_TYPES.toTypedArray(),
                 )
+                is LibraryEvent.OpenBook -> onOpenBook?.invoke(event.bookId)
                 is LibraryEvent.ShowSnackbar -> snackbarHostState.showSnackbar(event.message)
                 is LibraryEvent.RenameBook -> dialog = LibraryDialog.Rename(event.book)
                 is LibraryEvent.EditMetadata -> dialog = LibraryDialog.Metadata(event.book)
@@ -170,6 +181,12 @@ fun LibraryRoute(
         onCreateFolder = { folderNameDialog = FolderNameDialogState(null) },
         onRenameFolder = { folder -> folderNameDialog = FolderNameDialogState(folder) },
         onDeleteFolder = { folder -> deletingFolder = folder },
+        onAssembleFolder = { folder, books ->
+            fragmentAssembly = FragmentAssemblyDialogState(
+                folder = folder,
+                fragments = books.map { book -> BookFragmentSource(book.id, book.title) },
+            )
+        },
         onSelectFolder = viewModel::selectFolder,
         onImportVoice = {
             voiceLauncher.launch(arrayOf(VOICE_PACKAGE_MIME_TYPE, "application/zip", "application/octet-stream"))
@@ -261,6 +278,21 @@ fun LibraryRoute(
             },
         )
     }
+    fragmentAssembly?.let { assembly ->
+        FragmentAssemblyDialog(
+            initialTitle = assembly.folder.name,
+            fragments = assembly.fragments,
+            onConfirm = { title, orderedFragments ->
+                viewModel.assembleFragments(
+                    title = title,
+                    folderId = assembly.folder.id,
+                    fragments = orderedFragments,
+                )
+                fragmentAssembly = null
+            },
+            onDismiss = { fragmentAssembly = null },
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -278,6 +310,7 @@ fun LibraryScreen(
     onCreateFolder: () -> Unit,
     onRenameFolder: (ShelfFolderEntity) -> Unit,
     onDeleteFolder: (ShelfFolderEntity) -> Unit,
+    onAssembleFolder: (ShelfFolderEntity, List<BookSummary>) -> Unit,
     onSelectFolder: (String?) -> Unit,
     onImportVoice: () -> Unit,
     onManageVoices: () -> Unit,
@@ -301,6 +334,10 @@ fun LibraryScreen(
     val sortLabel = stringResource(R.string.sort)
     val importLabel = stringResource(R.string.import_book)
     val moreLabel = stringResource(R.string.more_options)
+    val selectedFolderBooks = (state as? LibraryUiState.Content)
+        ?.books
+        .orEmpty()
+        .filter { book -> book.folderId == selectedFolderId }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -399,6 +436,16 @@ fun LibraryScreen(
                                 },
                             )
                             folders.firstOrNull { it.id == selectedFolderId }?.let { selectedFolder ->
+                                if (state.query.isBlank() && selectedFolderBooks.size >= 2) {
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.assemble_fragments)) },
+                                        enabled = state.importState == LibraryImportState.Idle,
+                                        onClick = {
+                                            debugExpanded = false
+                                            onAssembleFolder(selectedFolder, selectedFolderBooks)
+                                        },
+                                    )
+                                }
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.rename_folder)) },
                                     onClick = {
@@ -501,6 +548,108 @@ fun LibraryScreen(
             onDismiss = onDismissDialog,
         )
     }
+}
+
+@Composable
+internal fun FragmentAssemblyDialog(
+    initialTitle: String,
+    fragments: List<BookFragmentSource>,
+    onConfirm: (String, List<BookFragmentSource>) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var title by rememberSaveable(initialTitle) { mutableStateOf(initialTitle) }
+    var orderedFragments by remember(fragments) {
+        mutableStateOf(naturallyOrderBookFragments(fragments))
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.assemble_fragments_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text(stringResource(R.string.book_title)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    text = stringResource(R.string.assemble_fragments_count, orderedFragments.size),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                LazyColumn(modifier = Modifier.heightIn(max = 320.dp)) {
+                    itemsIndexed(
+                        items = orderedFragments,
+                        key = { _, fragment -> fragment.bookId },
+                    ) { index, fragment ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "${index + 1}. ${fragment.title}",
+                                modifier = Modifier.weight(1f),
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            IconButton(
+                                enabled = index > 0,
+                                onClick = {
+                                    orderedFragments = moveBookFragment(
+                                        orderedFragments,
+                                        fromIndex = index,
+                                        toIndex = index - 1,
+                                    )
+                                },
+                            ) {
+                                Icon(
+                                    Icons.Outlined.KeyboardArrowUp,
+                                    contentDescription = stringResource(
+                                        R.string.move_fragment_up,
+                                        fragment.title,
+                                    ),
+                                )
+                            }
+                            IconButton(
+                                enabled = index < orderedFragments.lastIndex,
+                                onClick = {
+                                    orderedFragments = moveBookFragment(
+                                        orderedFragments,
+                                        fromIndex = index,
+                                        toIndex = index + 1,
+                                    )
+                                },
+                            ) {
+                                Icon(
+                                    Icons.Outlined.KeyboardArrowDown,
+                                    contentDescription = stringResource(
+                                        R.string.move_fragment_down,
+                                        fragment.title,
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                }
+                Text(
+                    text = stringResource(R.string.assemble_fragments_cleanup),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = title.isNotBlank() && orderedFragments.size >= 2,
+                onClick = { onConfirm(title.trim(), orderedFragments) },
+            ) {
+                Text(stringResource(R.string.assemble_fragments_start))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+        },
+    )
 }
 
 @Composable

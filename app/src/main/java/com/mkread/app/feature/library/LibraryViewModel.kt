@@ -11,11 +11,13 @@ import com.mkread.app.core.model.BookSummary
 import com.mkread.app.core.model.LibrarySort
 import com.mkread.app.core.database.ShelfFolderEntity
 import java.util.UUID
+import java.util.concurrent.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
@@ -102,6 +104,8 @@ sealed interface LibraryUiState {
 sealed interface LibraryEvent {
     data object OpenDocumentPicker : LibraryEvent
 
+    data class OpenBook(val bookId: String) : LibraryEvent
+
     data class ShowSnackbar(val message: String) : LibraryEvent
 
     data class RenameBook(val book: BookSummary) : LibraryEvent
@@ -116,6 +120,7 @@ class LibraryViewModel(
     private val savedStateHandle: SavedStateHandle,
     private val repository: BookRepository,
     private val importManager: BookImportManager,
+    private val fragmentAssembler: BookFragmentAssembler? = null,
 ) : ViewModel() {
     private val query = MutableStateFlow(savedStateHandle[QUERY_KEY] ?: "")
     private val sort = MutableStateFlow(
@@ -130,6 +135,8 @@ class LibraryViewModel(
     private val eventChannel = Channel<LibraryEvent>(Channel.BUFFERED)
     private var loadedBooks: List<BookSummary>? = null
     private var loadError: Throwable? = null
+    private var importWorkActive = false
+    private var assemblyJob: Job? = null
 
     val uiState: StateFlow<LibraryUiState> = _uiState.asStateFlow()
     val events: Flow<LibraryEvent> = eventChannel.receiveAsFlow()
@@ -169,21 +176,22 @@ class LibraryViewModel(
         viewModelScope.launch {
             importManager.updates.collect { update ->
                 when (update) {
-                    ImportWorkUpdate.Idle -> Unit
-                    is ImportWorkUpdate.Running -> importState.value = LibraryImportState.Importing
+                    ImportWorkUpdate.Idle -> importWorkActive = false
+                    is ImportWorkUpdate.Running -> importWorkActive = true
                     is ImportWorkUpdate.Success -> {
-                        importState.value = LibraryImportState.Idle
+                        importWorkActive = false
                         showSnackbar("小说导入成功")
                     }
                     is ImportWorkUpdate.Duplicate -> {
-                        importState.value = LibraryImportState.Idle
+                        importWorkActive = false
                         showSnackbar("这本小说已经在书架中")
                     }
                     is ImportWorkUpdate.Failure -> {
-                        importState.value = LibraryImportState.Idle
+                        importWorkActive = false
                         showSnackbar(update.message)
                     }
                 }
+                refreshOperationState()
                 render()
             }
         }
@@ -245,6 +253,56 @@ class LibraryViewModel(
                 showSnackbar("已开始导入 ${scan.documents.size} 个文件")
             }.onFailure {
                 showSnackbar("无法开始文件夹导入")
+            }
+        }
+    }
+
+    fun assembleFragments(
+        title: String,
+        folderId: String?,
+        fragments: List<BookFragmentSource>,
+    ) {
+        val assembler = fragmentAssembler
+        if (assembler == null) {
+            showSnackbar("当前版本无法编排章节，请更新后重试")
+            return
+        }
+        if (fragments.size < 2) {
+            showSnackbar("至少需要两个片段才能编排")
+            return
+        }
+        if (importState.value == LibraryImportState.Importing || assemblyJob?.isActive == true) {
+            showSnackbar("请等待当前导入或编排完成")
+            return
+        }
+        assemblyJob = viewModelScope.launch {
+            importState.value = LibraryImportState.Importing
+            render()
+            try {
+                val result = assembler.assemble(
+                    BookAssemblyRequest(
+                        title = title,
+                        folderId = folderId,
+                        fragments = fragments,
+                    ),
+                )
+                eventChannel.trySend(LibraryEvent.OpenBook(result.bookId))
+                val remaining = fragments.size - result.removedFragmentCount
+                if (remaining == 0) {
+                    showSnackbar("已编排为一本书，共 ${result.chapterCount} 章")
+                } else {
+                    showSnackbar("已生成 ${result.chapterCount} 章，仍有 $remaining 个片段需手动移出")
+                }
+            } catch (failure: CancellationException) {
+                throw failure
+            } catch (_: IllegalArgumentException) {
+                showSnackbar("书名不能为空，且至少需要两个可读片段")
+            } catch (_: Exception) {
+                showSnackbar("章节编排失败，原片段均已保留")
+            } finally {
+                assemblyJob = null
+                refreshOperationState()
+                render()
             }
         }
     }
@@ -323,6 +381,14 @@ class LibraryViewModel(
         eventChannel.trySend(LibraryEvent.ShowSnackbar(message))
     }
 
+    private fun refreshOperationState() {
+        importState.value = if (importWorkActive || assemblyJob?.isActive == true) {
+            LibraryImportState.Importing
+        } else {
+            LibraryImportState.Idle
+        }
+    }
+
     private fun render() {
         val currentQuery = query.value
         val currentSort = sort.value
@@ -370,6 +436,7 @@ class LibraryViewModel(
 class LibraryViewModelFactory(
     private val repository: BookRepository,
     private val importManager: BookImportManager,
+    private val fragmentAssembler: BookFragmentAssembler? = null,
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(
         modelClass: Class<T>,
@@ -383,6 +450,7 @@ class LibraryViewModelFactory(
             savedStateHandle = extras.createSavedStateHandle(),
             repository = repository,
             importManager = importManager,
+            fragmentAssembler = fragmentAssembler,
         ) as T
     }
 }

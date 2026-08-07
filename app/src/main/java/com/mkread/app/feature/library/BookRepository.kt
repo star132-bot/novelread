@@ -18,7 +18,11 @@ interface BookImportRepository {
     suspend fun moveBookToFolder(bookId: String, folderId: String?): Boolean = false
 }
 
-interface BookRepository : BookImportRepository {
+interface BookAssemblyRepository : BookImportRepository {
+    suspend fun removeBook(bookId: String): Boolean
+}
+
+interface BookRepository : BookAssemblyRepository {
     fun observeLibrary(query: LibraryQuery): Flow<List<BookSummary>>
 
     suspend fun updateMetadata(
@@ -28,8 +32,6 @@ interface BookRepository : BookImportRepository {
     ): Boolean
 
     suspend fun markOpened(bookId: String): Boolean
-
-    suspend fun removeBook(bookId: String): Boolean
 
     fun observeFolders(): Flow<List<ShelfFolderEntity>> = flowOf(emptyList())
 

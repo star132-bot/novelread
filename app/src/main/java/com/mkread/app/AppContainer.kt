@@ -9,6 +9,7 @@ import androidx.work.WorkManager
 import com.mkread.app.core.database.MkreadDatabase
 import com.mkread.app.core.files.FileBookStorage
 import com.mkread.app.feature.library.AndroidDocumentAccess
+import com.mkread.app.feature.library.AssembleBookFragmentsUseCase
 import com.mkread.app.feature.library.BookImportScheduler
 import com.mkread.app.feature.library.ImportBookUseCase
 import com.mkread.app.feature.library.ImportBookWorkerFactory
@@ -76,6 +77,11 @@ class AppContainer(
         override suspend fun markOpened(bookId: String) = repository.markOpened(bookId)
     }
     val chapterContentRepository = FileChapterContentRepository(context.filesDir, chapterMetadataSource)
+    val fragmentAssembler = AssembleBookFragmentsUseCase(
+        storage = storage,
+        repository = repository,
+        contentRepository = chapterContentRepository,
+    )
     val narrationController = OfflineReaderNarrationController(
         context = context,
         cache = audioCacheRepository,

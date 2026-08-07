@@ -43,6 +43,7 @@ fun MkreadNavHost(
                 LibraryViewModelFactory(
                     repository = container.repository,
                     importManager = container.importScheduler,
+                    fragmentAssembler = container.fragmentAssembler,
                 )
             }
             val libraryViewModel: LibraryViewModel = viewModel(factory = factory)

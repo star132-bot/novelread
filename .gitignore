@@ -36,3 +36,6 @@ Thumbs.db
 docs/private/
 # Stray copy created when the session folder moved
 /novelread/
+
+# Release artifacts
+dist/

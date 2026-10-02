@@ -93,6 +93,20 @@ mkread.signing.keyPassword=...
 
 没有配置时 `assembleRelease` 产出未签名包。
 
+## App 版本发布与应用内更新
+
+App 启动时（最多每 12 小时一次）以及「更多选项 → 检查更新」会请求 `GET /api/v1/app/latest?current=<versionCode>`（无需登录）。有新版本时弹窗提示，用户点「立即更新」后 App 在内部下载 APK（校验大小和 SHA-256），交给系统安装器，用户确认一次即可覆盖安装，数据全部保留。`min_supported` 大于当前版本时为强制更新（弹窗不能关闭）。
+
+前提：所有版本必须用同一个 release 签名密钥（见上文「Release 签名」）；首次更新时 Android 会要求用户允许 MKread「安装未知应用」。
+
+发布一个版本（versionCode 必须递增）：
+
+```bash
+MKREAD_APP_SERVER=<应用服务器 ssh 主机> scripts/publish-release.sh 0.3.1 4 "本次更新内容"
+```
+
+脚本会构建签名包、创建 GitHub Release 并附上 APK，然后让应用服务器经镜像拉取、校验并登记。撤回某个版本：在应用服务器上 `docker compose exec -T api python -m app.releases withdraw --version-code 4`。
+
 ## 更新服务端
 
 ```bash

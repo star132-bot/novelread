@@ -10,6 +10,7 @@ import androidx.work.DelegatingWorkerFactory
 import com.mkread.app.cloud.CloudLibrary
 import com.mkread.app.cloud.CloudSyncWorkerFactory
 import com.mkread.app.cloud.CloudVoicePackSource
+import com.mkread.app.update.AppUpdater
 import com.mkread.app.core.database.MkreadDatabase
 import com.mkread.app.core.files.FileBookStorage
 import com.mkread.app.feature.library.AndroidDocumentAccess
@@ -79,6 +80,12 @@ class AppContainer(
             },
         )
     }
+    val appUpdater = AppUpdater(
+        context = context,
+        dataStore = preferencesDataStore,
+        serverUrl = { cloudLibrary.refreshSettings().serverUrl },
+        scope = applicationScope,
+    )
     val workerFactory = DelegatingWorkerFactory().apply {
         addFactory(ImportBookWorkerFactory(importer, documentAccess))
         addFactory(CloudSyncWorkerFactory { cloudLibrary })

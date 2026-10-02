@@ -57,6 +57,7 @@ fun MkreadNavHost(
                     null
                 },
                 onOpenCloud = { navController.navigate(CLOUD_ROUTE) { launchSingleTop = true } },
+                onCheckUpdate = container.appUpdater::checkNow,
             )
         }
         composable(CLOUD_ROUTE) {

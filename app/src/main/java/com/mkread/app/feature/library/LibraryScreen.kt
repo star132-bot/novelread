@@ -66,6 +66,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.mkread.app.BuildConfig
 import com.mkread.app.R
 import com.mkread.app.core.model.BookSummary
 import com.mkread.app.core.model.LibrarySort
@@ -98,6 +99,7 @@ fun LibraryRoute(
     onOpenBook: ((String) -> Unit)?,
     onOpenSpeechDebug: (() -> Unit)?,
     onOpenCloud: (() -> Unit)? = null,
+    onCheckUpdate: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -213,6 +215,7 @@ fun LibraryRoute(
         onDismissDialog = { dialog = null },
         onOpenSpeechDebug = onOpenSpeechDebug,
         onOpenCloud = onOpenCloud,
+        onCheckUpdate = onCheckUpdate,
         modifier = modifier,
     )
     if (voiceDialogVisible) {
@@ -327,6 +330,7 @@ fun LibraryScreen(
     onDismissDialog: () -> Unit,
     onOpenSpeechDebug: (() -> Unit)?,
     onOpenCloud: (() -> Unit)? = null,
+    onCheckUpdate: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     var searchVisible by rememberSaveable { mutableStateOf(state.query.isNotEmpty()) }
@@ -484,6 +488,15 @@ fun LibraryScreen(
                                     onClick = {
                                         debugExpanded = false
                                         onOpenCloud()
+                                    },
+                                )
+                            }
+                            if (onCheckUpdate != null) {
+                                DropdownMenuItem(
+                                    text = { Text("检查更新（当前 ${BuildConfig.VERSION_NAME}）") },
+                                    onClick = {
+                                        debugExpanded = false
+                                        onCheckUpdate()
                                     },
                                 )
                             }

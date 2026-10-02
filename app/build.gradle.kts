@@ -15,8 +15,9 @@ android {
         applicationId = "com.mkread.app"
         minSdk = 29
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0"
+        // Overridable for release scripts and update tests: -Pmkread.versionCode=… -Pmkread.versionName=…
+        versionCode = providers.gradleProperty("mkread.versionCode").map(String::toInt).getOrElse(3)
+        versionName = providers.gradleProperty("mkread.versionName").getOrElse("0.3.0")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

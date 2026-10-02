@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
+from .releases import SCHEMA as RELEASE_SCHEMA
 from .voices import SCHEMA as VOICE_SCHEMA
 
 SCHEMA = """
@@ -90,6 +91,7 @@ class Database:
         with self.pool.connection() as conn:
             conn.execute(SCHEMA)
             conn.execute(VOICE_SCHEMA)
+            conn.execute(RELEASE_SCHEMA)
 
     def close(self) -> None:
         self.pool.close()

@@ -91,7 +91,7 @@ class TxtEncodingDetectorTest {
     private fun fixture(name: String): String = requireNotNull(
         javaClass.getResourceAsStream("/txt/$name"),
     ).bufferedReader(Charsets.UTF_8).use { reader ->
-        reader.readText().trimEnd('\r', '\n')
+        reader.readText().replace("\r\n", "\n").replace('\r', '\n').trimEnd('\n')
     }
 
     private fun assertParseFailure(

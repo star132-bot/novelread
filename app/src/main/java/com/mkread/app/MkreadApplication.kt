@@ -10,11 +10,12 @@ class MkreadApplication : Application(), Configuration.Provider {
 
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
-            .setWorkerFactory(container.importWorkerFactory)
+            .setWorkerFactory(container.workerFactory)
             .build()
 
     override fun onCreate() {
         super.onCreate()
         container.reconcileLibraryOnStartup()
+        container.cloudLibrary.schedulePeriodicSync()
     }
 }

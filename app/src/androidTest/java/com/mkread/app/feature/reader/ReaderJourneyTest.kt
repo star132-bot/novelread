@@ -92,7 +92,7 @@ class ReaderJourneyTest {
         val sourceUri = ImportTestContentProvider.register("reader-phase-3", sourceBytes)
         val importResult = runBlocking {
             TestListenableWorkerBuilder.from(application, ImportBookWorker::class.java)
-                .setWorkerFactory(application.container.importWorkerFactory)
+                .setWorkerFactory(application.container.workerFactory)
                 .setInputData(
                     ImportBookWorker.inputData(
                         uri = sourceUri,

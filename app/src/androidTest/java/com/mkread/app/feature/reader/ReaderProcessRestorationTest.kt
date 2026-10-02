@@ -57,7 +57,7 @@ class ReaderProcessRestorationTest {
             val sourceUri = ImportTestContentProvider.register("reader-process-restore", sourceBytes)
             val importResult = runBlocking {
                 TestListenableWorkerBuilder.from(application, ImportBookWorker::class.java)
-                    .setWorkerFactory(application.container.importWorkerFactory)
+                    .setWorkerFactory(application.container.workerFactory)
                     .setInputData(
                         ImportBookWorker.inputData(
                             uri = sourceUri,

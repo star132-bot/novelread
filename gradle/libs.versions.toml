@@ -18,6 +18,7 @@ datastore = "1.1.1"
 media3 = "1.5.1"
 serialization-json = "1.7.3"
 jsoup = "1.18.3"
+browser = "1.8.0"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "core-ktx" }
@@ -56,6 +57,7 @@ androidx-media3-session = { module = "androidx.media3:media3-session", version.r
 androidx-media3-test-utils = { module = "androidx.media3:media3-test-utils", version.ref = "media3" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization-json" }
 jsoup = { module = "org.jsoup:jsoup", version.ref = "jsoup" }
+androidx-browser = { module = "androidx.browser:browser", version.ref = "browser" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

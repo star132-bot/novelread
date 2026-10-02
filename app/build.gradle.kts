@@ -24,6 +24,13 @@ android {
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
         }
+
+        // Default cloud library server; can be changed in the app's 云端书库 screen.
+        buildConfigField(
+            "String",
+            "CLOUD_SERVER_URL",
+            "\"${providers.gradleProperty("mkread.cloudServerUrl").getOrElse("https://books.mkauth.sbs")}\"",
+        )
     }
 
     buildTypes {
@@ -59,6 +66,11 @@ android {
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
+
+    androidResources {
+        // Speech models barely compress; storing them uncompressed makes the first-run copy faster.
+        noCompress += listOf("onnx", "bin", "fst")
+    }
 }
 
 room {
@@ -89,6 +101,7 @@ dependencies {
     implementation(libs.androidx.media3.session)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.jsoup)
+    implementation(libs.androidx.browser)
 
     ksp(libs.androidx.room.compiler)
 

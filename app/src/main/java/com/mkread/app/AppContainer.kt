@@ -6,6 +6,9 @@ import android.util.Log
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.room.Room
 import androidx.work.WorkManager
+import androidx.work.DelegatingWorkerFactory
+import com.mkread.app.cloud.CloudLibrary
+import com.mkread.app.cloud.CloudSyncWorkerFactory
 import com.mkread.app.core.database.MkreadDatabase
 import com.mkread.app.core.files.FileBookStorage
 import com.mkread.app.feature.library.AndroidDocumentAccess
@@ -27,6 +30,7 @@ import com.mkread.app.feature.reader.RoomChapterEditMetadata
 import com.mkread.app.feature.reader.RoomReadingPositionRepository
 import com.mkread.app.playback.DataStorePlaybackCheckpointStore
 import com.mkread.app.playback.MKREAD_PREFERENCES_FILE_NAME
+import com.mkread.app.speech.NarrationVoiceSettings
 import com.mkread.app.speech.RoomAudioCacheRepository
 import com.mkread.app.ui.theme.ThemeModeController
 import kotlinx.coroutines.CoroutineScope
@@ -53,6 +57,7 @@ class AppContainer(
         MkreadDatabase.MIGRATION_1_2,
         MkreadDatabase.MIGRATION_2_3,
         MkreadDatabase.MIGRATION_3_4,
+        MkreadDatabase.MIGRATION_4_5,
     ).build()
     val storage = FileBookStorage(context.filesDir, context.cacheDir)
     val audioCacheRepository = RoomAudioCacheRepository(
@@ -62,7 +67,21 @@ class AppContainer(
     val repository = RoomBookRepository(database, storage)
     val documentAccess = AndroidDocumentAccess(context)
     val importer = ImportBookUseCase(storage, repository)
-    val importWorkerFactory = ImportBookWorkerFactory(importer, documentAccess)
+    val cloudLibrary: CloudLibrary by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        CloudLibrary(
+            context = context,
+            dataStore = preferencesDataStore,
+            importer = importer,
+            repository = repository,
+            folderForCloudBooks = {
+                runCatching { repository.getOrCreateFolder(CloudLibrary.CLOUD_FOLDER_NAME).id }.getOrNull()
+            },
+        )
+    }
+    val workerFactory = DelegatingWorkerFactory().apply {
+        addFactory(ImportBookWorkerFactory(importer, documentAccess))
+        addFactory(CloudSyncWorkerFactory { cloudLibrary })
+    }
     val importScheduler: BookImportScheduler by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         BookImportScheduler(WorkManager.getInstance(context), documentAccess)
     }
@@ -86,8 +105,9 @@ class AppContainer(
         context = context,
         cache = audioCacheRepository,
         chapterContentRepository = chapterContentRepository,
+        voiceSettings = NarrationVoiceSettings(preferencesDataStore),
         scope = applicationScope,
-    )
+    ).also { it.prepareSelectedVoice() }
     val readingPositionRepository = RoomReadingPositionRepository(database)
     val paginationCache = FilePaginationCache(context.cacheDir)
     val paginationEngine = AndroidPaginationEngine(paginationCache)

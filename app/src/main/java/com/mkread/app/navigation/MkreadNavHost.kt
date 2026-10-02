@@ -12,6 +12,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.mkread.app.AppContainer
 import com.mkread.app.BuildConfig
+import com.mkread.app.cloud.CloudLibraryScreen
 import com.mkread.app.feature.library.LibraryRoute
 import com.mkread.app.feature.library.LibraryViewModel
 import com.mkread.app.feature.library.LibraryViewModelFactory
@@ -55,7 +56,11 @@ fun MkreadNavHost(
                 } else {
                     null
                 },
+                onOpenCloud = { navController.navigate(CLOUD_ROUTE) { launchSingleTop = true } },
             )
+        }
+        composable(CLOUD_ROUTE) {
+            CloudLibraryScreen(library = container.cloudLibrary, onBack = navController::popBackStack)
         }
         composable(
             route = READER_ROUTE,
@@ -133,3 +138,4 @@ private const val CHAPTER_ID_ARGUMENT = "chapterId"
 private const val READER_ROUTE = "reader/{$BOOK_ID_ARGUMENT}"
 private const val CHAPTER_EDITOR_ROUTE = "editor/{$BOOK_ID_ARGUMENT}/{$CHAPTER_ID_ARGUMENT}"
 private const val SPEECH_DEBUG_ROUTE = "debug/speech"
+private const val CLOUD_ROUTE = "cloud"

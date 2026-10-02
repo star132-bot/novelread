@@ -31,3 +31,8 @@ artifacts/
 # OS files
 Thumbs.db
 .DS_Store
+
+# Private handoff notes (server inventory, credentials locations)
+docs/private/
+# Stray copy created when the session folder moved
+/novelread/

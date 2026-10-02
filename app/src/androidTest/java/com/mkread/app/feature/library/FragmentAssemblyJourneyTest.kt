@@ -109,7 +109,7 @@ class FragmentAssemblyJourneyTest {
         sourcePayloads += payload
         val result = runBlocking {
             TestListenableWorkerBuilder.from(application, ImportBookWorker::class.java)
-                .setWorkerFactory(application.container.importWorkerFactory)
+                .setWorkerFactory(application.container.workerFactory)
                 .setInputData(
                     ImportBookWorker.inputData(
                         uri = uri,

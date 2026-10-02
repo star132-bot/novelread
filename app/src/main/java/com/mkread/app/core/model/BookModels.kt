@@ -3,6 +3,7 @@ package com.mkread.app.core.model
 enum class SourceType {
     TXT,
     EPUB,
+    MKBOOK,
 }
 
 enum class LibrarySort {

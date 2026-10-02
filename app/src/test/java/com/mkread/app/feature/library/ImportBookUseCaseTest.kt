@@ -182,6 +182,49 @@ class ImportBookUseCaseTest {
         assertEquals(SourceType.TXT, detector.detect(source))
     }
 
+    @Test
+    fun newerMkBookRevision_replacesTheShelfCopy() = runBlocking {
+        val harness = Harness(temporaryFolder.root)
+        harness.txtParser.catalogId = "yexing-zhe"
+        harness.txtParser.revision = 3
+        harness.repository.catalogBook = existingCatalogBook(revision = 2)
+
+        val result = harness.useCase(harness.request())
+
+        assertEquals(ImportResult.Updated(BOOK_ID, "old-book"), result)
+        assertEquals("old-book", harness.repository.replacedBookId)
+        assertEquals(3, harness.repository.committedBook?.catalogRevision)
+        assertEquals(listOf("c1", "c2"), harness.repository.committedChapters.map { it.externalId })
+        assertFalse("commit" in harness.events)
+    }
+
+    @Test
+    fun sameOrOlderMkBookRevision_isADuplicate() = runBlocking {
+        val harness = Harness(temporaryFolder.root)
+        harness.txtParser.catalogId = "yexing-zhe"
+        harness.txtParser.revision = 2
+        harness.repository.catalogBook = existingCatalogBook(revision = 2)
+
+        val result = harness.useCase(harness.request())
+
+        assertEquals(ImportResult.Duplicate("old-book"), result)
+        assertFalse("replace" in harness.events || "commit" in harness.events)
+    }
+
+    private fun existingCatalogBook(revision: Int) = BookEntity(
+        id = "old-book",
+        title = "Old",
+        author = null,
+        sourceType = SourceType.MKBOOK,
+        sourceSha256 = "0".repeat(64),
+        coverRelativePath = null,
+        importedAt = 1L,
+        modifiedAt = 1L,
+        lastOpenedAt = null,
+        catalogId = "yexing-zhe",
+        catalogRevision = revision,
+    )
+
     private fun assertFailure(expected: ImportFailureCode, result: ImportResult) {
         assertTrue("Expected failure but was $result", result is ImportResult.Failure)
         assertEquals(expected, (result as ImportResult.Failure).code)
@@ -242,6 +285,8 @@ class ImportBookUseCaseTest {
     ) : BookParser {
         var failure: Exception? = null
         var callCount = 0
+        var catalogId: String? = null
+        var revision: Int? = null
 
         override fun parse(source: File, sourceName: String): ParsedBook {
             events += "parse-$label"
@@ -253,9 +298,11 @@ class ImportBookUseCaseTest {
                 language = "zh",
                 coverBytes = PNG_BYTES,
                 chapters = listOf(
-                    ParsedChapter("First", "Body one"),
-                    ParsedChapter("Second", "Body two"),
+                    ParsedChapter("First", "Body one", externalId = catalogId?.let { "c1" }),
+                    ParsedChapter("Second", "Body two", externalId = catalogId?.let { "c2" }),
                 ),
+                catalogId = catalogId,
+                revision = revision,
             )
         }
     }
@@ -267,6 +314,18 @@ class ImportBookUseCaseTest {
         var commitFailure: Throwable? = null
         var committedBook: BookEntity? = null
         var committedChapters: List<ChapterEntity> = emptyList()
+        var catalogBook: BookEntity? = null
+        var replacedBookId: String? = null
+
+        override suspend fun findCatalogBook(catalogId: String): BookEntity? =
+            catalogBook?.takeIf { it.catalogId == catalogId }
+
+        override suspend fun replaceCatalogBook(oldBookId: String, book: BookEntity, chapters: List<ChapterEntity>) {
+            events += "replace"
+            replacedBookId = oldBookId
+            committedBook = book
+            committedChapters = chapters
+        }
 
         override suspend fun findBookIdBySourceHash(sourceSha256: String): String? {
             events += "lookup"

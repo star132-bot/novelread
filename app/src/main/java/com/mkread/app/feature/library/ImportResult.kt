@@ -12,6 +12,9 @@ data class ImportRequest(
 sealed interface ImportResult {
     data class Success(val bookId: String) : ImportResult
 
+    /** A newer revision of an MKBook already on the shelf replaced the old copy. */
+    data class Updated(val bookId: String, val replacedBookId: String) : ImportResult
+
     data class Duplicate(val existingBookId: String) : ImportResult
 
     data class Failure(
@@ -25,6 +28,8 @@ enum class ImportFailureCode {
     UNSUPPORTED_TYPE,
     ENCODING,
     MALFORMED_EPUB,
+    MALFORMED_MKBOOK,
+    UNSUPPORTED_VERSION,
     NO_READABLE_CONTENT,
     STORAGE_FULL,
     SOURCE_UNAVAILABLE,

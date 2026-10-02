@@ -1,5 +1,6 @@
 package com.mkread.app.feature.library
 
+import com.mkread.app.core.files.MkBookParser
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -58,8 +59,9 @@ class AndroidBookDirectoryScanner(context: Context) {
 
     private fun isSupported(name: String, mimeType: String?): Boolean {
         val extension = name.substringAfterLast('.', "").lowercase()
-        return extension == "txt" || extension == "epub" ||
-            mimeType == "text/plain" || mimeType == "application/epub+zip"
+        return extension == "txt" || extension == "epub" || extension == "mkbook" ||
+            mimeType == "text/plain" || mimeType == "application/epub+zip" ||
+            mimeType == MkBookParser.MIMETYPE
     }
 
     private companion object {

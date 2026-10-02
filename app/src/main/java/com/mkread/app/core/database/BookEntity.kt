@@ -10,6 +10,7 @@ import com.mkread.app.core.model.SourceType
     tableName = "books",
     indices = [
         Index(value = ["source_sha256"], unique = true),
+        Index(value = ["catalog_id"], unique = true),
     ],
 )
 data class BookEntity(
@@ -31,4 +32,9 @@ data class BookEntity(
     val lastOpenedAt: Long?,
     @ColumnInfo(name = "folder_id", index = true)
     val folderId: String? = null,
+    /** MKBook id for books that can be updated in place (cloud library or .mkbook imports). */
+    @ColumnInfo(name = "catalog_id")
+    val catalogId: String? = null,
+    @ColumnInfo(name = "catalog_revision")
+    val catalogRevision: Int? = null,
 )

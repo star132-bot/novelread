@@ -97,6 +97,7 @@ fun LibraryRoute(
     viewModel: LibraryViewModel,
     onOpenBook: ((String) -> Unit)?,
     onOpenSpeechDebug: (() -> Unit)?,
+    onOpenCloud: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -211,6 +212,7 @@ fun LibraryRoute(
         },
         onDismissDialog = { dialog = null },
         onOpenSpeechDebug = onOpenSpeechDebug,
+        onOpenCloud = onOpenCloud,
         modifier = modifier,
     )
     if (voiceDialogVisible) {
@@ -324,6 +326,7 @@ fun LibraryScreen(
     onConfirmRemove: (BookSummary) -> Unit,
     onDismissDialog: () -> Unit,
     onOpenSpeechDebug: (() -> Unit)?,
+    onOpenCloud: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     var searchVisible by rememberSaveable { mutableStateOf(state.query.isNotEmpty()) }
@@ -475,6 +478,15 @@ fun LibraryScreen(
                                     onImportVoice()
                                 },
                             )
+                            if (onOpenCloud != null) {
+                                DropdownMenuItem(
+                                    text = { Text("云端书库") },
+                                    onClick = {
+                                        debugExpanded = false
+                                        onOpenCloud()
+                                    },
+                                )
+                            }
                             if (onOpenSpeechDebug != null) {
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.debug_speech)) },

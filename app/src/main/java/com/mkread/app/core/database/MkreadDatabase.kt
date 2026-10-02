@@ -13,7 +13,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         AudioCacheEntity::class,
         ShelfFolderEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class MkreadDatabase : RoomDatabase() {
@@ -108,6 +108,17 @@ abstract class MkreadDatabase : RoomDatabase() {
                 database.execSQL(
                     "CREATE INDEX IF NOT EXISTS `index_books_folder_id` ON `books` (`folder_id`)",
                 )
+            }
+        }
+
+        val MIGRATION_4_5: Migration = object : Migration(4, 5) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE `books` ADD COLUMN `catalog_id` TEXT")
+                database.execSQL("ALTER TABLE `books` ADD COLUMN `catalog_revision` INTEGER")
+                database.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_books_catalog_id` ON `books` (`catalog_id`)",
+                )
+                database.execSQL("ALTER TABLE `chapters` ADD COLUMN `external_id` TEXT")
             }
         }
     }

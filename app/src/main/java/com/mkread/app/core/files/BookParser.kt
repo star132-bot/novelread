@@ -12,11 +12,16 @@ data class ParsedBook(
     val language: String?,
     val coverBytes: ByteArray?,
     val chapters: List<ParsedChapter>,
+    /** MKBook packages carry a stable book id and revision used for in-place updates. */
+    val catalogId: String? = null,
+    val revision: Int? = null,
 )
 
 data class ParsedChapter(
     val title: String,
     val text: String,
+    val externalId: String? = null,
+    val volume: String? = null,
 )
 
 enum class BookParseFailure {
@@ -26,6 +31,8 @@ enum class BookParseFailure {
     SOURCE_TOO_LARGE,
     CHAPTER_TOO_LARGE,
     MALFORMED_EPUB,
+    MALFORMED_MKBOOK,
+    UNSUPPORTED_VERSION,
 }
 
 class BookParseException(

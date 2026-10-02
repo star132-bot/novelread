@@ -7,6 +7,7 @@ import com.mkread.app.core.files.BookParseFailure
 import com.mkread.app.core.files.BookParser
 import com.mkread.app.core.files.BookStorage
 import com.mkread.app.core.files.EpubBookParser
+import com.mkread.app.core.files.MkBookParser
 import com.mkread.app.core.files.ImportStaging
 import com.mkread.app.core.files.SafeZipException
 import com.mkread.app.core.files.SafeZipFailure
@@ -48,18 +49,19 @@ class ContentSourceTypeDetector(
         try {
             zipReader.open(source).use { archive ->
                 val mimetype = try {
-                    archive.read(EPUB_MIMETYPE_PATH, EPUB_MIMETYPE.length.toLong() + 1L)
+                    archive.read(EPUB_MIMETYPE_PATH, MkBookParser.MIMETYPE.length.toLong() + 1L)
                 } catch (failure: SafeZipException) {
                     if (failure.failure == SafeZipFailure.ENTRY_NOT_FOUND) {
                         throw UnsupportedSourceTypeException()
                     }
                     throw failure
                 }
-                if (mimetype.toString(Charsets.US_ASCII) != EPUB_MIMETYPE) {
-                    throw UnsupportedSourceTypeException()
+                when (mimetype.toString(Charsets.US_ASCII)) {
+                    EPUB_MIMETYPE -> return SourceType.EPUB
+                    MkBookParser.MIMETYPE -> return SourceType.MKBOOK
+                    else -> throw UnsupportedSourceTypeException()
                 }
             }
-            return SourceType.EPUB
         } catch (failure: UnsupportedSourceTypeException) {
             throw failure
         } catch (failure: SafeZipException) {
@@ -94,6 +96,7 @@ class ImportBookUseCase(
     private val repository: BookImportRepository,
     private val txtParser: BookParser = TxtBookParser(),
     private val epubParser: BookParser = EpubBookParser(),
+    private val mkBookParser: BookParser = MkBookParser(),
     private val sourceTypeDetector: SourceTypeDetector = ContentSourceTypeDetector(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val idGenerator: () -> String = { UUID.randomUUID().toString() },
@@ -129,8 +132,15 @@ class ImportBookUseCase(
             val parser = when (sourceType) {
                 SourceType.TXT -> txtParser
                 SourceType.EPUB -> epubParser
+                SourceType.MKBOOK -> mkBookParser
             }
             val parsed = parser.parse(copied.file, request.displayName)
+            val replacing = parsed.catalogId?.let { catalogId -> repository.findCatalogBook(catalogId) }
+            if (replacing != null && (replacing.catalogRevision ?: 0) >= (parsed.revision ?: 0)) {
+                request.folderId?.let { repository.moveBookToFolder(replacing.id, it) }
+                storage.discard(staging)
+                return ImportResult.Duplicate(replacing.id)
+            }
             if (parsed.chapters.isEmpty()) {
                 throw BookParseException(
                     BookParseFailure.NO_READABLE_CONTENT,
@@ -165,8 +175,7 @@ class ImportBookUseCase(
             promoted = true
 
             val timestamp = clock()
-            repository.commitImportedBook(
-                book = BookEntity(
+            val book = BookEntity(
                     id = bookId,
                     title = parsed.title,
                     author = parsed.author,
@@ -177,19 +186,26 @@ class ImportBookUseCase(
                     modifiedAt = timestamp,
                     lastOpenedAt = null,
                     folderId = request.folderId,
-                ),
-                chapters = storedChapters.mapIndexed { index, stored ->
-                    ChapterEntity(
-                        id = "$bookId:${stored.ordinal.toString().padStart(4, '0')}",
-                        bookId = bookId,
-                        ordinal = stored.ordinal,
-                        title = parsed.chapters[index].title,
-                        relativePath = stored.relativePath,
-                        characterCount = stored.characterCount,
-                        contentSha256 = stored.contentSha256,
-                    )
-                },
-            )
+                    catalogId = parsed.catalogId,
+                    catalogRevision = parsed.revision,
+                )
+            val chapters = storedChapters.mapIndexed { index, stored ->
+                ChapterEntity(
+                    id = "$bookId:${stored.ordinal.toString().padStart(4, '0')}",
+                    bookId = bookId,
+                    ordinal = stored.ordinal,
+                    title = parsed.chapters[index].title,
+                    relativePath = stored.relativePath,
+                    characterCount = stored.characterCount,
+                    contentSha256 = stored.contentSha256,
+                    externalId = parsed.chapters[index].externalId,
+                )
+            }
+            if (replacing != null) {
+                repository.replaceCatalogBook(replacing.id, book, chapters)
+                return ImportResult.Updated(bookId, replacing.id)
+            }
+            repository.commitImportedBook(book = book, chapters = chapters)
             return ImportResult.Success(bookId)
         } catch (failure: CancellationException) {
             compensate(staging, promoted, bookId)
@@ -236,7 +252,7 @@ class ImportBookUseCase(
         )
         is UnsupportedSourceTypeException -> ImportResult.Failure(
             ImportFailureCode.UNSUPPORTED_TYPE,
-            "文件不是受支持的 TXT 或 EPUB",
+            "文件不是受支持的 TXT、EPUB 或 MKBook",
         )
         is StorageException -> when (failure) {
             StorageFailure.SOURCE_TOO_LARGE,
@@ -256,6 +272,14 @@ class ImportBookUseCase(
             BookParseFailure.MALFORMED_EPUB -> ImportResult.Failure(
                 ImportFailureCode.MALFORMED_EPUB,
                 "EPUB 文件损坏或结构不受支持",
+            )
+            BookParseFailure.MALFORMED_MKBOOK -> ImportResult.Failure(
+                ImportFailureCode.MALFORMED_MKBOOK,
+                "MKBook 文件损坏或未通过校验",
+            )
+            BookParseFailure.UNSUPPORTED_VERSION -> ImportResult.Failure(
+                ImportFailureCode.UNSUPPORTED_VERSION,
+                "这本书使用了更新的格式，请升级 MKread",
             )
             BookParseFailure.NO_READABLE_CONTENT -> ImportResult.Failure(
                 ImportFailureCode.NO_READABLE_CONTENT,

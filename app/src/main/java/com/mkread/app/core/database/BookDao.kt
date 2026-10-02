@@ -31,6 +31,9 @@ abstract class BookDao {
     @Query("SELECT * FROM books WHERE source_sha256 = :sourceSha256 LIMIT 1")
     abstract suspend fun getBySourceSha256(sourceSha256: String): BookEntity?
 
+    @Query("SELECT * FROM books WHERE catalog_id = :catalogId LIMIT 1")
+    abstract suspend fun getByCatalogId(catalogId: String): BookEntity?
+
     @Query("SELECT * FROM books WHERE id = :bookId LIMIT 1")
     abstract suspend fun getById(bookId: String): BookEntity?
 

@@ -52,6 +52,51 @@ class RoomBookRepository(
         }
     }
 
+    override suspend fun findCatalogBook(catalogId: String): BookEntity? =
+        database.bookDao().getByCatalogId(catalogId)
+
+    override suspend fun replaceCatalogBook(
+        oldBookId: String,
+        book: BookEntity,
+        chapters: List<ChapterEntity>,
+    ) {
+        try {
+            database.withTransaction {
+                val old = database.bookDao().getById(oldBookId)
+                val oldPosition = database.readingPositionDao().getByBookId(oldBookId)
+                val oldChapter = oldPosition?.let { database.chapterDao().getById(it.chapterId) }
+                // Free the unique catalog id before inserting the new revision.
+                database.bookDao().deleteById(oldBookId)
+                database.bookDao().insertBookWithChapters(
+                    book = book.copy(
+                        folderId = old?.folderId ?: book.folderId,
+                        lastOpenedAt = old?.lastOpenedAt,
+                        importedAt = old?.importedAt ?: book.importedAt,
+                    ),
+                    chapters = chapters,
+                )
+                val target = oldChapter?.externalId?.let { externalId ->
+                    chapters.firstOrNull { it.externalId == externalId }
+                }
+                if (oldPosition != null && target != null) {
+                    database.readingPositionDao().upsert(
+                        oldPosition.copy(
+                            bookId = book.id,
+                            chapterId = target.id,
+                            characterOffset = oldPosition.characterOffset.coerceIn(0, target.characterCount),
+                            updatedAt = clock(),
+                        ),
+                    )
+                }
+            }
+            diagnosticTombstones.remove(book.id)
+        } catch (failure: SQLiteConstraintException) {
+            val existing = database.bookDao().getBySourceSha256(book.sourceSha256)?.id
+            throw DuplicateSourceException(existing, failure)
+        }
+        runCatching { storage.deleteBook(oldBookId) }
+    }
+
     override fun observeLibrary(query: LibraryQuery): Flow<List<BookSummary>> {
         val escapedQuery = escapeLikePattern(query.search.normalizeBookWhitespace())
         val source = when (query.sort) {

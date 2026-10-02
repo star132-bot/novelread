@@ -16,6 +16,18 @@ interface BookImportRepository {
     )
 
     suspend fun moveBookToFolder(bookId: String, folderId: String?): Boolean = false
+
+    suspend fun findCatalogBook(catalogId: String): BookEntity? = null
+
+    /**
+     * Swaps [oldBookId] for a newly imported revision of the same MKBook: shelf folder, last-opened
+     * time and reading position (matched by chapter external id) carry over, then the old copy goes.
+     */
+    suspend fun replaceCatalogBook(
+        oldBookId: String,
+        book: BookEntity,
+        chapters: List<ChapterEntity>,
+    ): Unit = commitImportedBook(book, chapters)
 }
 
 interface BookAssemblyRepository : BookImportRepository {

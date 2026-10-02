@@ -148,6 +148,8 @@ class BookImportScheduler internal constructor(
         val SUPPORTED_MIME_TYPES = listOf(
             "text/plain",
             "application/epub+zip",
+            "application/vnd.mkread.book+zip",
+            "application/zip",
             "application/octet-stream",
         )
         const val IMPORT_TAG = "book-import"

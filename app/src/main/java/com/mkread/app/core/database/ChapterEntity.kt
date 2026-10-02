@@ -34,4 +34,7 @@ data class ChapterEntity(
     val characterCount: Int,
     @ColumnInfo(name = "content_sha256")
     val contentSha256: String,
+    /** Stable MKBook chapter id; lets reading progress survive book updates. */
+    @ColumnInfo(name = "external_id")
+    val externalId: String? = null,
 )

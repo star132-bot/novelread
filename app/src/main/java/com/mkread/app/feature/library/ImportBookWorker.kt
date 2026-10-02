@@ -53,6 +53,12 @@ class ImportBookWorker(
                         KEY_BOOK_ID to result.bookId,
                     ),
                 )
+                is ImportResult.Updated -> Result.success(
+                    workDataOf(
+                        KEY_STATUS to STATUS_SUCCESS,
+                        KEY_BOOK_ID to result.bookId,
+                    ),
+                )
                 is ImportResult.Duplicate -> Result.success(
                     workDataOf(
                         KEY_STATUS to STATUS_DUPLICATE,

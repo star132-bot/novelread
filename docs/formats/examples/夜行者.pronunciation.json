@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "overrides": [
+    { "source": "单于", "replacement": "缠于", "match": "literal" }
+  ]
+}

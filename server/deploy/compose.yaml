@@ -1,0 +1,20 @@
+# Production: API on the app server, PostgreSQL on the separate database server.
+# Lives at /opt/mkread-library/compose.yaml; secrets come from /opt/mkread-library/.env (mode 600).
+# Public traffic arrives through the Cloudflare tunnel (books.mkauth.sbs -> http://localhost:8095).
+name: mkread-library
+
+services:
+  api:
+    image: mkread-library:${MKREAD_LIBRARY_VERSION:-1.0.0}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+    volumes:
+      - /srv/mkread-library:/data
+    ports:
+      - "127.0.0.1:8095:8000"
+    mem_limit: 512m
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }

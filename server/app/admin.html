@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MKread 云书库</title>
+<style>
+  :root { --bg:#f6f6f3; --card:#fff; --ink:#1d1f1e; --muted:#6b706d; --accent:#24604c; --line:#e3e4e0; --bad:#a33; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#141615; --card:#1d201f; --ink:#e8eae7; --muted:#9aa09c; --accent:#6fc2a3; --line:#2c302e; --bad:#e88; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.6 system-ui, "PingFang SC", "Noto Sans SC", sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  p.sub { color: var(--muted); margin: 0 0 24px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  label { display:block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  input[type=password], input[type=file] { width: 100%; padding: 8px; border:1px solid var(--line); border-radius: 8px; background: transparent; color: inherit; }
+  button { margin-top: 12px; background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 8px 16px; font: inherit; cursor: pointer; }
+  button.ghost { background: transparent; color: var(--bad); border: 1px solid var(--line); margin: 0; padding: 4px 10px; }
+  #msg { margin-top: 10px; white-space: pre-wrap; }
+  #msg.err { color: var(--bad); }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 13px; color: var(--muted); font-weight: 500; }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .wrap { overflow-x: auto; }
+</style>
+</head>
+<body>
+<main>
+  <h1>MKread 云书库</h1>
+  <p class="sub">上传 .mkbook（用 tools/mkbook/mkbook.py build 生成），App 会自动同步。</p>
+
+  <section>
+    <label for="token">管理令牌（ADMIN_API_TOKEN，只保存在本浏览器）</label>
+    <input id="token" type="password" autocomplete="off">
+    <label for="file" style="margin-top:12px">.mkbook 文件</label>
+    <input id="file" type="file" accept=".mkbook">
+    <button id="upload">上传发布</button>
+    <div id="msg"></div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <table>
+        <thead><tr><th>书名</th><th>id</th><th>版本</th><th>章节</th><th>字数</th><th></th></tr></thead>
+        <tbody id="rows"><tr><td colspan="6">加载中…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const tokenInput = $("token");
+try { tokenInput.value = localStorage.getItem("mkread-admin-token") || ""; } catch (_) {}
+tokenInput.addEventListener("change", () => { try { localStorage.setItem("mkread-admin-token", tokenInput.value); } catch (_) {} });
+const headers = () => tokenInput.value ? { Authorization: "Bearer " + tokenInput.value } : {};
+const show = (text, bad) => { $("msg").textContent = text; $("msg").className = bad ? "err" : ""; };
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+async function load() {
+  const res = await fetch("api/v1/catalog?limit=500", { headers: headers() });
+  if (!res.ok) { $("rows").innerHTML = `<tr><td colspan="6">${res.status === 401 ? "请先填写管理令牌" : "加载失败"}</td></tr>`; return; }
+  const books = (await res.json()).books.filter((b) => !b.deleted);
+  $("rows").innerHTML = books.length ? books.map((b) => `<tr>
+      <td>${esc(b.title)}<br><small>${esc(b.author || "")}</small></td><td>${esc(b.id)}</td>
+      <td class="num">r${b.revision}</td><td class="num">${b.chapterCount}</td>
+      <td class="num">${(b.charCount / 10000).toFixed(1)} 万</td>
+      <td><button class="ghost" data-id="${esc(b.id)}">下架</button></td></tr>`).join("")
+    : `<tr><td colspan="6">还没有书</td></tr>`;
+}
+
+$("upload").addEventListener("click", async () => {
+  const file = $("file").files[0];
+  if (!file) return show("请选择 .mkbook 文件", true);
+  const body = new FormData(); body.append("file", file);
+  show("上传中…");
+  const res = await fetch("api/v1/books", { method: "POST", headers: headers(), body });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return show(data.detail || `上传失败（${res.status}）`, true);
+  show(`已发布《${data.title}》 r${data.revision}`);
+  load();
+});
+
+$("rows").addEventListener("click", async (event) => {
+  const id = event.target.dataset && event.target.dataset.id;
+  if (!id || !confirm(`确定下架 ${id}？App 会在下次同步时移除它。`)) return;
+  const res = await fetch(`api/v1/books/${encodeURIComponent(id)}`, { method: "DELETE", headers: headers() });
+  show(res.ok ? `已下架 ${id}` : `下架失败（${res.status}）`, !res.ok);
+  load();
+});
+
+load();
+</script>
+</body>
+</html>

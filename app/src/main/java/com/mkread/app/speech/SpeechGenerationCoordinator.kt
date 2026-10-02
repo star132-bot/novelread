@@ -52,10 +52,10 @@ class SpeechGenerationCoordinator(
         settings: NarrationSettings,
     ): GenerationState? {
         val normalized = try {
-            normalizer.normalize(sentence.rawText)
+            normalizer.normalizeOrNull(sentence.rawText)
         } catch (failure: Exception) {
             return GenerationState.Blocked(sentence, failure.safeMessage(), retryable = false)
-        }
+        } ?: return GenerationState.Skipped(sentence)
         val primaryVoice = voiceProvider.resolve(settings.voiceId, settings.styleId).getOrNull()
         if (primaryVoice != null) {
             when (val result = attempt(sentence, normalized, primaryVoice, settings.quality)) {
@@ -126,6 +126,8 @@ class SpeechGenerationCoordinator(
                         reference = voice.reference,
                         quality = quality,
                         outputFile = partial,
+                        model = voice.model,
+                        speakerId = voice.speakerId,
                     ),
                 )
             }
@@ -216,7 +218,7 @@ class SpeechGenerationCoordinator(
 
     private companion object {
         const val PREFETCH_COUNT = 3
-        const val GENERATION_CONFIGURATION_VERSION = 2
+        const val GENERATION_CONFIGURATION_VERSION = 3
         const val PROTECTION_MILLIS = 10 * 60 * 1_000L
         const val MIN_CACHE_BYTES = 100L * 1024 * 1024
         const val MAX_CACHE_BYTES = 1024L * 1024 * 1024

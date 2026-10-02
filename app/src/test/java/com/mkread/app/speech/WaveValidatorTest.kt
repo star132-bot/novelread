@@ -47,7 +47,7 @@ class WaveValidatorTest {
     @Test
     fun wrongSampleRate_isRejected() {
         val file = temporaryFolder.newFile("wrong-rate.wav").apply {
-            writeBytes(waveBytes(sampleRate = 16_000, sampleData = byteArrayOf(0, 0)))
+            writeBytes(waveBytes(sampleRate = 8_000, sampleData = byteArrayOf(0, 0)))
         }
 
         assertInvalid(file)

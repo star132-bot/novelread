@@ -10,6 +10,7 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.UUID
+import org.json.JSONObject
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -37,17 +38,43 @@ class SpeechAssetInstaller(
         },
     )
 
-    suspend fun install(): SpeechAssetInstallResult = withContext(ioDispatcher) {
+    /**
+     * Installs the bundled speech files whose paths start with one of [prefixes] (all files
+     * when null). Files recorded as installed with a matching size are trusted without
+     * re-hashing, so repeated calls cost a few stat() calls instead of hashing hundreds of MB.
+     *
+     * With [pruneOthers], model packs outside [prefixes] are deleted to reclaim storage.
+     */
+    suspend fun install(
+        prefixes: Collection<String>? = null,
+        pruneOthers: Boolean = false,
+    ): SpeechAssetInstallResult = withContext(ioDispatcher) {
         val manifestBytes = source.open(MANIFEST_ASSET_PATH).use { input ->
             input.readBounded(MAX_MANIFEST_BYTES)
         }
         val manifest = SpeechAssetManifest.parse(manifestBytes.toString(Charsets.UTF_8))
-        val filesToReplace = manifest.files.filterNot { record ->
-            installedFile(record).matches(record)
+        val wanted = manifest.files.filter { record ->
+            prefixes == null || prefixes.any { record.relativePath.startsWith(it) }
         }
-        val completionMatches = completionFile().readManifestOrNull() == manifest
+        require(wanted.isNotEmpty()) { "No bundled speech assets match the requested voice" }
+        val installed = completionFile().readManifestOrNull()?.files.orEmpty()
+            .associateBy(SpeechAssetFile::relativePath)
+            .toMutableMap()
+        if (pruneOthers && prefixes != null) {
+            pruneModelPacks(keep = prefixes, installed = installed)
+        }
+        val filesToReplace = wanted.filterNot { record ->
+            val file = installedFile(record)
+            if (installed[record.relativePath] == record) {
+                file.isFile && file.length() == record.byteSize
+            } else {
+                file.matches(record)
+            }
+        }
 
-        if (filesToReplace.isEmpty() && completionMatches) {
+        if (filesToReplace.isEmpty()) {
+            val recorded = wanted.all { installed[it.relativePath] == it }
+            if (!recorded) writeCompletion(installed.apply { wanted.forEach { put(it.relativePath, it) } })
             return@withContext SpeechAssetInstallResult(emptyList())
         }
 
@@ -88,19 +115,13 @@ class SpeechAssetInstaller(
                 }
             }
 
-            val stagedCompletion = File(stagingDirectory, COMPLETION_FILE)
-            stagedCompletion.writeBytes(manifestBytes)
-            require(stagedCompletion.readManifestOrNull() == manifest) {
-                "Staged speech asset completion manifest is invalid"
-            }
-
             currentCoroutineContext().ensureActive()
             filesToReplace.forEach { record ->
                 val destination = installedFile(record)
                 requireDirectory(destination.parentFile, "installed speech asset")
                 atomicReplace(File(stagingDirectory, record.relativePath), destination)
             }
-            atomicReplace(stagedCompletion, completionFile())
+            writeCompletion(installed.apply { wanted.forEach { put(it.relativePath, it) } })
 
             SpeechAssetInstallResult(filesToReplace.map { it.relativePath })
         } finally {
@@ -112,6 +133,40 @@ class SpeechAssetInstaller(
     }
 
     private fun installedFile(record: SpeechAssetFile) = File(filesDir, record.relativePath)
+
+    private fun writeCompletion(records: Map<String, SpeechAssetFile>) {
+        val completion = completionFile()
+        if (records.isEmpty()) {
+            completion.delete()
+            return
+        }
+        val json = buildString {
+            append("{\"schemaVersion\":").append(SpeechAssetManifest.SUPPORTED_SCHEMA_VERSION).append(",\"files\":[")
+            records.values.sortedBy(SpeechAssetFile::relativePath).forEachIndexed { index, record ->
+                if (index > 0) append(',')
+                append("{\"path\":").append(JSONObject.quote(record.relativePath))
+                append(",\"size\":").append(record.byteSize)
+                append(",\"sha256\":\"").append(record.sha256).append("\"}")
+            }
+            append("]}")
+        }
+        val partial = File(filesDir, "$COMPLETION_FILE.partial")
+        partial.writeText(json, Charsets.UTF_8)
+        atomicReplace(partial, completion)
+    }
+
+    /** Deletes installed model packs (models/<pack>/) that are not covered by [keep]. */
+    private fun pruneModelPacks(keep: Collection<String>, installed: MutableMap<String, SpeechAssetFile>) {
+        val modelsRoot = File(filesDir, MODELS_DIRECTORY)
+        val removed = modelsRoot.listFiles().orEmpty()
+            .filter { pack -> pack.isDirectory && keep.none { it.startsWith("$MODELS_DIRECTORY/${pack.name}/") } }
+        if (removed.isEmpty()) return
+        removed.forEach { pack ->
+            installed.keys.removeAll { it.startsWith("$MODELS_DIRECTORY/${pack.name}/") }
+        }
+        writeCompletion(installed)
+        removed.forEach(File::deleteRecursively)
+    }
 
     private fun completionFile() = File(filesDir, COMPLETION_FILE)
 
@@ -173,6 +228,7 @@ class SpeechAssetInstaller(
     private companion object {
         const val MANIFEST_ASSET_PATH = "speech-assets.json"
         const val COMPLETION_FILE = "speech-assets.complete.json"
+        const val MODELS_DIRECTORY = "models"
         const val STAGING_DIRECTORY = "speech-staging"
         const val SHA_256 = "SHA-256"
         const val COPY_BUFFER_BYTES = 64 * 1024

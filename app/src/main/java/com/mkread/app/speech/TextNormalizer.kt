@@ -14,14 +14,20 @@ data class NormalizedText(
 class TextNormalizer(
     private val pronunciationOverrides: PronunciationOverrides,
 ) {
-    fun normalize(input: String): NormalizedText {
+    fun normalize(input: String): NormalizedText =
+        requireNotNull(normalizeOrNull(input)) { "Narration text is blank after normalization" }
+
+    /** Returns null when nothing speakable remains, e.g. a "※※※" scene break. */
+    fun normalizeOrNull(input: String): NormalizedText? {
         val normalized = input.normalizeNfkcPreservingNarrationPunctuation()
             .collapseWhitespace()
             .normalizeEllipsis()
             .let(pronunciationOverrides::applyTo)
+            .let(ChineseNumberVerbalizer::verbalize)
+            .let(SpeakableTextFilter::filter)
             .collapseWhitespace()
 
-        require(normalized.isNotEmpty()) { "Narration text is blank after normalization" }
+        if (!SpeakableTextFilter.hasSpeech(normalized)) return null
         return NormalizedText(
             value = normalized,
             sha256 = normalized.sha256(),
@@ -29,7 +35,7 @@ class TextNormalizer(
     }
 
     companion object {
-        const val NORMALIZER_VERSION = 1
+        const val NORMALIZER_VERSION = 2
 
         fun fromAsset(openAsset: (String) -> InputStream): TextNormalizer {
             val overrides = openAsset(PronunciationOverrides.ASSET_PATH)

@@ -363,6 +363,8 @@ class ReaderViewModel(
         ?: sentences.firstOrNull {
             it.startInclusive == sentenceId.start && it.endExclusive == sentenceId.end
         }
+        // Narration splits long sentences into chunks; highlight the sentence containing the chunk.
+        ?: sentences.firstOrNull { sentenceId.start in it.startInclusive until it.endExclusive }
 
     private fun detachFromPlayback() {
         followPlayback = false

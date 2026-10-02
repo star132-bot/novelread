@@ -6,9 +6,14 @@ import java.io.RandomAccessFile
 
 object SherpaWaveReader {
     private const val PCM16_SCALE = 32_768f
+    private const val REFERENCE_SAMPLE_RATE = 24_000
 
-    fun read(file: File): WaveData {
+    /** Reads a voice-cloning reference; ZipVoice references must be 24 kHz. */
+    fun read(file: File, expectedSampleRate: Int = REFERENCE_SAMPLE_RATE): WaveData {
         val playable = WaveValidator.inspectPlayable(file)
+        require(playable.sampleRate == expectedSampleRate) {
+            "Reference WAV must be $expectedSampleRate Hz"
+        }
         val samples = FloatArray(playable.sampleCount)
         RandomAccessFile(file, "r").use { wave ->
             wave.seek(playable.dataOffset)

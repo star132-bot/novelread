@@ -34,7 +34,7 @@ class SpikeViewModel(application: Application) : AndroidViewModel(application) {
         private set
 
     private val installer = SpeechAssetInstaller(application)
-    private var speechEngine: ZipVoiceSpeechEngine? = null
+    private var speechEngine: SherpaSpeechEngine? = null
     private var mediaPlayer: MediaPlayer? = null
 
     fun generateAndPlay(text: String) {
@@ -58,9 +58,8 @@ class SpikeViewModel(application: Application) : AndroidViewModel(application) {
                             .trim(),
                     )
                 }
-                val engine = speechEngine ?: ZipVoiceSpeechEngine(
-                    ZipVoicePaths.fromFilesDir(application.filesDir),
-                ).also { speechEngine = it }
+                val engine = speechEngine ?: SherpaSpeechEngine(application.filesDir)
+                    .also { speechEngine = it }
 
                 state = SpikeState.Generating
                 engine.initialize().getOrThrow()

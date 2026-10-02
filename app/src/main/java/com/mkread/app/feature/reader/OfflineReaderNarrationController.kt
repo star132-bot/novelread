@@ -14,15 +14,20 @@ import com.mkread.app.speech.AudioCacheRepository
 import com.mkread.app.speech.ContextEmotionAnalyzer
 import com.mkread.app.speech.EmotionContext
 import com.mkread.app.speech.GenerationState
+import com.mkread.app.speech.CatalogVoiceProvider
 import com.mkread.app.speech.InstalledVoiceProvider
+import com.mkread.app.speech.NarrationVoiceSettings
+import com.mkread.app.speech.SherpaSpeechEngine
+import com.mkread.app.speech.VoiceCatalog
+import com.mkread.app.speech.VoiceModel
+import com.mkread.app.speech.VoiceOption
 import com.mkread.app.speech.NarrationSentence
 import com.mkread.app.speech.NarrationSettings
 import com.mkread.app.speech.SpeechAssetInstaller
 import com.mkread.app.speech.SpeechGenerationCoordinator
 import com.mkread.app.speech.SpeechQuality
 import com.mkread.app.speech.TextNormalizer
-import com.mkread.app.speech.ZipVoicePaths
-import com.mkread.app.speech.ZipVoiceSpeechEngine
+import android.os.PowerManager
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
@@ -33,6 +38,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -43,6 +49,7 @@ class OfflineReaderNarrationController(
     context: Context,
     cache: AudioCacheRepository,
     chapterContentRepository: ChapterContentRepository,
+    private val voiceSettings: NarrationVoiceSettings,
     private val scope: CoroutineScope,
 ) : ReaderNarrationController {
     private val applicationContext = context.applicationContext
@@ -57,11 +64,12 @@ class OfflineReaderNarrationController(
         contentRepository = chapterContentRepository,
         segmenter = SentenceSegmenter(),
     )
+    private val installedVoices = InstalledVoiceProvider(applicationContext.filesDir)
     private val generationCoordinator = SpeechGenerationCoordinator(
-        engine = ZipVoiceSpeechEngine(ZipVoicePaths.fromFilesDir(applicationContext.filesDir)),
+        engine = SherpaSpeechEngine(applicationContext.filesDir),
         cache = cache,
         normalizer = TextNormalizer.fromAsset { path -> applicationContext.assets.open(path) },
-        voiceProvider = InstalledVoiceProvider(applicationContext.filesDir),
+        voiceProvider = CatalogVoiceProvider(installedVoices),
         cacheDirectory = applicationContext.cacheDir,
         availableBytes = { applicationContext.cacheDir.usableSpace },
         nowMillis = System::currentTimeMillis,
@@ -72,6 +80,11 @@ class OfflineReaderNarrationController(
     private var autoPlayRequested = false
     private var activeSession: NarrationSession? = null
     private var starvationResumeIndex: Int? = null
+    private val playbackTick = MutableStateFlow(0L)
+    private val installMutex = Mutex()
+    private val generationWakeLock = applicationContext.getSystemService(PowerManager::class.java)
+        .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "mkread:narration-generation")
+        .apply { setReferenceCounted(false) }
 
     override val state: StateFlow<ReaderPlaybackUiState> = mutableState.asStateFlow()
 
@@ -135,6 +148,43 @@ class OfflineReaderNarrationController(
         withController { controller -> controller.setPlaybackSpeed(speed) }
     }
 
+    override fun setVoice(voiceId: String) {
+        val current = mutableState.value
+        val option = current.cloneVoices.firstOrNull { it.id == voiceId } ?: VoiceCatalog.find(voiceId)
+        if (current.voiceId == option.id) return
+        mutableState.value = current.copy(voiceId = option.id, voiceName = option.displayName, message = null)
+        scope.launch {
+            voiceSettings.select(option.id)
+            val session = activeSession
+            if (session != null && current.status in REBUILDABLE_STATUSES) {
+                launchGeneration(session, preserveCurrent = true)
+            } else {
+                runCatching { installVoice(option) }
+            }
+        }
+    }
+
+    /** Copies the selected voice's model out of the APK ahead of the first narration request. */
+    fun prepareSelectedVoice() {
+        scope.launch {
+            val option = VoiceCatalog.find(voiceSettings.selectedVoiceId.first())
+            val cloneVoices = runCatching {
+                installedVoices.installedVoices().map(VoiceCatalog::cloneOption)
+            }.getOrDefault(emptyList())
+            mutableState.value = mutableState.value.copy(
+                voiceId = option.id,
+                voiceName = cloneVoices.firstOrNull { it.id == option.id }?.displayName ?: option.displayName,
+                cloneVoices = cloneVoices,
+            )
+            runCatching { installVoice(option) }
+        }
+    }
+
+    private suspend fun installVoice(option: VoiceOption) = installMutex.withLock {
+        val prefixes = (option.model.assetPrefixes + VoiceModel.MATCHA.assetPrefixes).distinct()
+        assetInstaller.install(prefixes = prefixes, pruneOthers = true)
+    }
+
     override fun setEmotionEnabled(enabled: Boolean) {
         val current = mutableState.value
         if (current.emotionEnabled == enabled) return
@@ -173,24 +223,34 @@ class OfflineReaderNarrationController(
                         controller.resetForNarrationReplacement()
                     }
                 }
-                assetInstaller.install()
+                val voice = VoiceCatalog.find(voiceSettings.selectedVoiceId.first())
+                mutableState.value = mutableState.value.copy(
+                    voiceId = voice.id,
+                    voiceName = mutableState.value.cloneVoices.firstOrNull { it.id == voice.id }?.displayName
+                        ?: voice.displayName,
+                )
+                installVoice(voice)
                 var queueAvailable = preserveQueue
-                val startupBuffer = NarrationStartupBuffer<MediaItem>(STARTUP_BUFFER_SENTENCES)
+                val startupBuffer = NarrationStartupBuffer<MediaItem>(voice.model.startupBufferSentences)
                 queueSource.sentences(
                     reader = session.reader,
                     initialSentence = session.initialSentence,
                     resumeAfter = resumeAfter,
                 ).takeWhile { planned ->
                     if (generationId != generationCounter.get()) return@takeWhile false
-                    val generated = generationCoordinator.prepare(
-                        queue = listOf(planned.toNarrationSentence(session.reader, generationId)),
-                        currentIndex = 0,
-                        settings = NarrationSettings(
-                            voiceId = null,
-                            styleId = styleFor(planned),
-                            quality = SpeechQuality.FLUENT,
-                        ),
-                    ).singleOrNull()
+                    if (queueAvailable) awaitLookaheadRoom(controller)
+                    if (generationId != generationCounter.get()) return@takeWhile false
+                    val generated = withGenerationWakeLock {
+                        generationCoordinator.prepare(
+                            queue = listOf(planned.toNarrationSentence(session.reader, generationId)),
+                            currentIndex = 0,
+                            settings = NarrationSettings(
+                                voiceId = voice.id,
+                                styleId = if (voice.model.clonesVoices) styleFor(planned) else NEUTRAL_STYLE,
+                                quality = SpeechQuality.FLUENT,
+                            ),
+                        ).singleOrNull()
+                    }
                     when (generated) {
                         is GenerationState.Ready -> {
                             val item = generated.toMediaItem()
@@ -204,6 +264,7 @@ class OfflineReaderNarrationController(
                             }
                             true
                         }
+                        is GenerationState.Skipped -> true
                         is GenerationState.Blocked -> {
                             if (queueAvailable) showMessage(generated.reason) else fail(generated.reason)
                             false
@@ -234,6 +295,31 @@ class OfflineReaderNarrationController(
             } finally {
                 if (generationId == generationCounter.get()) finishIfPlayerEnded()
             }
+        }
+    }
+
+    /**
+     * Generating the whole book up front wastes battery and cache space, so generation pauses
+     * once [MAX_SENTENCES_AHEAD] chunks are queued after the one currently playing.
+     */
+    private suspend fun awaitLookaheadRoom(controller: MediaController) {
+        while (true) {
+            val tick = playbackTick.value
+            val ahead = withContext(Dispatchers.Main.immediate) {
+                controller.mediaItemCount - controller.currentMediaItemIndex - 1
+            }
+            if (ahead < MAX_SENTENCES_AHEAD) return
+            playbackTick.first { it != tick }
+        }
+    }
+
+    /** Keeps the CPU awake while synthesizing so narration continues with the screen off. */
+    private suspend fun <T> withGenerationWakeLock(block: suspend () -> T): T {
+        generationWakeLock.acquire(GENERATION_WAKE_LOCK_TIMEOUT_MILLIS)
+        return try {
+            block()
+        } finally {
+            if (generationWakeLock.isHeld) generationWakeLock.release()
         }
     }
 
@@ -425,6 +511,15 @@ class OfflineReaderNarrationController(
             )
         }
 
+        override fun onEvents(player: Player, events: Player.Events) {
+            if (events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION) ||
+                events.contains(Player.EVENT_TIMELINE_CHANGED) ||
+                events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED)
+            ) {
+                playbackTick.value += 1
+            }
+        }
+
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             val sentence = mediaItem?.mediaId?.let(SentenceMediaItemFactory::decode)
             mutableState.value = mutableState.value.copy(activeSentence = sentence)
@@ -456,7 +551,8 @@ class OfflineReaderNarrationController(
         const val CONTROLLER_TIMEOUT_SECONDS = 20L
         const val MIN_SPEED = 0.5f
         const val MAX_SPEED = 3f
-        const val STARTUP_BUFFER_SENTENCES = 3
+        const val MAX_SENTENCES_AHEAD = 12
+        const val GENERATION_WAKE_LOCK_TIMEOUT_MILLIS = 2 * 60 * 1_000L
         const val STARVATION_BUFFER_SENTENCES = 2
         val REBUILDABLE_STATUSES = setOf(
             ReaderPlaybackStatus.PREPARING,

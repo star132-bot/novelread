@@ -15,6 +15,7 @@ data class PlannedNarrationSentence(
 class ReaderNarrationQueueSource(
     private val contentRepository: ChapterContentRepository,
     private val segmenter: SentenceSegmenter,
+    private val chunker: NarrationChunker = NarrationChunker(),
 ) {
     fun sentences(
         reader: ReaderUiState.Loaded,
@@ -43,14 +44,17 @@ class ReaderNarrationQueueSource(
                     sentences = segmenter.segment(loaded.text),
                 )
             }
-            val firstSentenceIndex = when {
+            val chunks = snapshot.sentences.flatMap { chunker.split(snapshot.text, it) }
+            val firstChunkIndex = when {
                 chapterIndex != startChapterIndex -> 0
-                resumeAfter != null -> snapshot.sentences.indexAfter(resumeAfter)
-                else -> snapshot.sentences.indexOfFirst { it == initialSentence }
+                resumeAfter != null -> chunks.indexAfter(resumeAfter)
+                else -> chunks.indexOfFirst {
+                    it.index == initialSentence.index && it.startInclusive == initialSentence.startInclusive
+                }
                     .takeIf { it >= 0 }
                     ?: error("The selected sentence is not in the current chapter")
             }
-            snapshot.sentences.drop(firstSentenceIndex).forEach { range ->
+            chunks.drop(firstChunkIndex).forEach { range ->
                 emit(
                     PlannedNarrationSentence(
                         chapter = snapshot.chapter,

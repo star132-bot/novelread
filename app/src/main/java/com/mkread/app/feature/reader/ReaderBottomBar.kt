@@ -1,5 +1,7 @@
 package com.mkread.app.feature.reader
 
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.material.icons.outlined.RecordVoiceOver
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -141,6 +143,10 @@ private fun PlaybackControls(
     onAction: (ReaderPlaybackAction) -> Unit,
 ) {
     var speedMenuExpanded by remember { mutableStateOf(false) }
+    var voicePickerVisible by remember { mutableStateOf(false) }
+    if (voicePickerVisible) {
+        VoicePickerSheet(state = state, onAction = onAction, onDismiss = { voicePickerVisible = false })
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -148,25 +154,20 @@ private fun PlaybackControls(
             .testTag("reader-playback-controls"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier.weight(1.3f),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = stringResource(R.string.reader_emotion),
-                style = MaterialTheme.typography.labelMedium,
-                maxLines = 1,
-            )
-            Spacer(Modifier.width(4.dp))
-            Switch(
-                checked = state.emotionEnabled,
-                onCheckedChange = { enabled ->
-                    onAction(ReaderPlaybackAction.SetEmotionEnabled(enabled))
-                },
-                modifier = Modifier.semantics {
-                    contentDescription = "reader-emotion-toggle"
-                },
-            )
+        Box(modifier = Modifier.weight(1.3f), contentAlignment = Alignment.CenterStart) {
+            TextButton(
+                onClick = { voicePickerVisible = true },
+                modifier = Modifier.testTag("reader-voice-button"),
+            ) {
+                Icon(Icons.Outlined.RecordVoiceOver, contentDescription = null)
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    text = state.voiceName,
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
         PlaybackIconButton(
             label = stringResource(R.string.reader_previous_sentence),

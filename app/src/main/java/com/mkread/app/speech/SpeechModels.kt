@@ -12,9 +12,12 @@ enum class SpeechQuality(val numSteps: Int) { FLUENT(4), HIGH(8) }
 
 data class SpeechRequest(
     val text: String,
-    val reference: VoiceReference,
+    /** Recording to clone; required for [VoiceModel.clonesVoices] models and ignored otherwise. */
+    val reference: VoiceReference?,
     val quality: SpeechQuality,
     val outputFile: File,
+    val model: VoiceModel = VoiceModel.ZIPVOICE,
+    val speakerId: Int = 0,
 )
 
 data class SpeechResult(

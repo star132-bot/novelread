@@ -2,6 +2,8 @@ package com.mkread.app.feature.reader
 
 import androidx.media3.common.Player
 import com.mkread.app.playback.SentenceId
+import com.mkread.app.speech.VoiceCatalog
+import com.mkread.app.speech.VoiceOption
 import kotlinx.coroutines.flow.StateFlow
 
 enum class ReaderPlaybackStatus {
@@ -18,6 +20,9 @@ data class ReaderPlaybackUiState(
     val speed: Float = 1f,
     val emotionEnabled: Boolean = true,
     val message: String? = null,
+    val voiceId: String = VoiceCatalog.DEFAULT_VOICE_ID,
+    val voiceName: String = VoiceCatalog.matcha.displayName,
+    val cloneVoices: List<VoiceOption> = emptyList(),
 ) {
     val isPlaying: Boolean
         get() = status == ReaderPlaybackStatus.PLAYING
@@ -33,6 +38,7 @@ sealed interface ReaderPlaybackAction {
     data object Replay : ReaderPlaybackAction
     data class SetSpeed(val value: Float) : ReaderPlaybackAction
     data class SetEmotionEnabled(val enabled: Boolean) : ReaderPlaybackAction
+    data class SetVoice(val voiceId: String) : ReaderPlaybackAction
 }
 
 interface ReaderNarrationController {
@@ -53,6 +59,8 @@ interface ReaderNarrationController {
     fun setSpeed(value: Float)
 
     fun setEmotionEnabled(enabled: Boolean)
+
+    fun setVoice(voiceId: String)
 }
 
 internal fun Player.resetForNarrationReplacement() {

@@ -4,7 +4,9 @@ data class NarrationVoice(
     val id: String,
     val packageSha256: String,
     val styleId: String,
-    val reference: VoiceReference,
+    val reference: VoiceReference?,
+    val model: VoiceModel = VoiceModel.ZIPVOICE,
+    val speakerId: Int = 0,
 )
 
 interface NarrationVoiceProvider {

@@ -6,7 +6,6 @@ import java.nio.charset.StandardCharsets
 
 object WaveValidator {
     private const val MINIMUM_WAVE_BYTES = 44L
-    private const val EXPECTED_SAMPLE_RATE = 24_000L
     private const val EXPECTED_CHANNELS = 1
     private const val EXPECTED_BITS_PER_SAMPLE = 16
     private const val PCM_FORMAT = 1
@@ -32,6 +31,7 @@ object WaveValidator {
             require(riffEnd <= wave.length()) { "RIFF chunk extends past the file" }
 
             var formatFound = false
+            var sampleRate = 0
             var dataSize: Long? = null
             var dataOffset: Long? = null
             while (wave.filePointer + 8L <= riffEnd) {
@@ -48,14 +48,16 @@ object WaveValidator {
                         require(chunkSize >= 16L) { "fmt chunk is shorter than PCM metadata" }
                         val audioFormat = wave.readLittleEndianUnsignedShort()
                         val channels = wave.readLittleEndianUnsignedShort()
-                        val sampleRate = wave.readLittleEndianUnsignedInt()
+                        sampleRate = wave.readLittleEndianUnsignedInt().toInt()
                         wave.readLittleEndianUnsignedInt() // Byte rate.
                         val blockAlign = wave.readLittleEndianUnsignedShort()
                         val bitsPerSample = wave.readLittleEndianUnsignedShort()
 
                         require(audioFormat == PCM_FORMAT) { "WAV must use PCM format 1" }
                         require(channels == EXPECTED_CHANNELS) { "WAV must be mono" }
-                        require(sampleRate == EXPECTED_SAMPLE_RATE) { "WAV sample rate must be 24000 Hz" }
+                        require(sampleRate in VoiceModel.SUPPORTED_SAMPLE_RATES) {
+                            "WAV sample rate $sampleRate Hz is not supported"
+                        }
                         require(bitsPerSample == EXPECTED_BITS_PER_SAMPLE) { "WAV must use 16-bit samples" }
                         require(blockAlign == 2) { "WAV block alignment must be 2 bytes" }
                         formatFound = true
@@ -81,7 +83,7 @@ object WaveValidator {
             require(sampleCount <= Int.MAX_VALUE) { "WAV contains too many samples" }
             PlayableWave(
                 dataOffset = requireNotNull(dataOffset),
-                sampleRate = EXPECTED_SAMPLE_RATE.toInt(),
+                sampleRate = sampleRate,
                 sampleCount = sampleCount.toInt(),
             )
         }

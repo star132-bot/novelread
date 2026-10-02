@@ -1,7 +1,14 @@
 package com.mkread.app.feature.reader
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -68,6 +75,19 @@ fun ReaderRoute(
     val latestState by rememberUpdatedState(state)
     val snackbarHostState = remember { SnackbarHostState() }
     val lifecycleOwner = LocalLifecycleOwner.current
+    val context = LocalContext.current
+    // Android 13+ hides the playback notification (and lock-screen controls) until the user allows it.
+    val notificationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { }
+    val requestNotificationsOnce = {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
     DisposableEffect(lifecycleOwner, viewModel) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) {
@@ -85,6 +105,7 @@ fun ReaderRoute(
                 is ReaderEvent.ReadFromHere -> {
                     val loaded = latestState as? ReaderUiState.Loaded
                     if (loaded != null && loaded.chapter.id == event.chapterId) {
+                        requestNotificationsOnce()
                         narrationController?.start(loaded, event.sentence)
                     }
                 }
@@ -115,7 +136,10 @@ fun ReaderRoute(
                     else -> {
                         val loaded = state as? ReaderUiState.Loaded
                         val sentence = loaded?.sentences?.nearestBoundary(loaded.characterOffset)
-                        if (loaded != null && sentence != null) controller.start(loaded, sentence)
+                        if (loaded != null && sentence != null) {
+                            requestNotificationsOnce()
+                            controller.start(loaded, sentence)
+                        }
                     }
                 }
                 ReaderPlaybackAction.Previous -> controller.previous()
@@ -125,6 +149,7 @@ fun ReaderRoute(
                 is ReaderPlaybackAction.SetEmotionEnabled -> {
                     controller.setEmotionEnabled(action.enabled)
                 }
+                is ReaderPlaybackAction.SetVoice -> controller.setVoice(action.voiceId)
             }
         },
         onBack = { viewModel.onAction(ReaderAction.Exit) },

@@ -20,4 +20,9 @@ sealed interface GenerationState {
         val sentence: NarrationSentence,
         val reason: String,
     ) : GenerationState
+
+    /** The sentence has nothing speakable (for example a "※※※" scene break). */
+    data class Skipped(
+        val sentence: NarrationSentence,
+    ) : GenerationState
 }

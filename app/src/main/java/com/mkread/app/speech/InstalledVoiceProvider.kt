@@ -38,6 +38,12 @@ class InstalledVoiceProvider(
 
     override suspend fun builtInNeutral(): Result<NarrationVoice> = fallback.builtInNeutral()
 
+    /** Resolves exactly [voiceId] without falling back to another voice. */
+    suspend fun resolveInstalled(voiceId: String, styleId: String): Result<NarrationVoice> {
+        if (voiceId == BUILT_IN_VOICE_ID) return fallback.builtInNeutral()
+        return withContext(ioDispatcher) { runCatching { loadInstalledVoice(voiceId, styleId) } }
+    }
+
     suspend fun selectedVoiceId(): String = withContext(ioDispatcher) {
         File(voicesRoot, SELECTION_FILE_NAME)
             .takeIf(File::isFile)

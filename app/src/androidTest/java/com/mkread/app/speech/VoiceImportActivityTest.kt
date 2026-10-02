@@ -312,8 +312,8 @@ class VoiceImportActivityTest {
     private companion object {
         const val MIME_TYPE = "application/vnd.mkread.voice"
         const val VOICE_ID = "com.example.activityimport"
+        // INTERNET is allowed since the cloud library; OfflineContractTest guards that boundary.
         val FORBIDDEN_PERMISSIONS = setOf(
-            Manifest.permission.INTERNET,
             Manifest.permission.READ_EXTERNAL_STORAGE,
             Manifest.permission.WRITE_EXTERNAL_STORAGE,
             Manifest.permission.MANAGE_EXTERNAL_STORAGE,

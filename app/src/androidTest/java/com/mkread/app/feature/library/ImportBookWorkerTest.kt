@@ -208,7 +208,13 @@ class ImportBookWorkerTest {
         assertEquals(10_000L, capturedRequest!!.workSpec.backoffDelayDuration)
         assertTrue(BookImportScheduler.IMPORT_TAG in capturedRequest!!.tags)
         assertEquals(
-            listOf("text/plain", "application/epub+zip", "application/octet-stream"),
+            listOf(
+                "text/plain",
+                "application/epub+zip",
+                "application/vnd.mkread.book+zip",
+                "application/zip",
+                "application/octet-stream",
+            ),
             BookImportScheduler.SUPPORTED_MIME_TYPES.toList(),
         )
     }

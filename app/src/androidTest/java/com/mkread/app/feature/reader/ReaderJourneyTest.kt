@@ -32,12 +32,17 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import com.mkread.app.grantNotificationPermission
 import org.junit.Rule
+import org.junit.rules.TestRule
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class ReaderJourneyTest {
+    @get:Rule
+    val notificationPermission: TestRule = grantNotificationPermission()
+
     @get:Rule
     val composeRule = createAndroidComposeRule<MainActivity>()
 
@@ -263,6 +268,10 @@ class ReaderJourneyTest {
             startInclusive = (sentence.startInclusive - pageStart).coerceAtLeast(0),
             endExclusive = (sentence.endExclusive - pageStart).coerceAtMost(pageText.length),
         )
+        // Narration may move on quickly with a fast voice; wait for the chosen sentence to be highlighted.
+        composeRule.waitUntil(timeoutMillis = UI_TIMEOUT_MILLIS) {
+            runCatching { highlightRange(visibleReaderTextView()) }.getOrNull() == expectedHighlight
+        }
         assertEquals(expectedHighlight, highlightRange(visibleReaderTextView()))
         return SemanticSelection(sentence = sentence)
     }

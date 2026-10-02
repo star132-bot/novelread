@@ -21,11 +21,16 @@ import java.security.MessageDigest
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Before
+import com.mkread.app.grantNotificationPermission
 import org.junit.Rule
+import org.junit.rules.TestRule
 import org.junit.Test
 import org.junit.Assert.assertTrue
 
 class ChapterEditorNavigationTest {
+    @get:Rule
+    val notificationPermission: TestRule = grantNotificationPermission()
+
     @get:Rule
     val composeRule = createAndroidComposeRule<MainActivity>()
 

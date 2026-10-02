@@ -68,6 +68,7 @@ class Migration1To2Test {
                 MkreadDatabase.MIGRATION_1_2,
                 MkreadDatabase.MIGRATION_2_3,
                 MkreadDatabase.MIGRATION_3_4,
+                MkreadDatabase.MIGRATION_4_5,
             )
             .allowMainThreadQueries()
             .build()

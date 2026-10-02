@@ -21,12 +21,17 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Before
+import com.mkread.app.grantNotificationPermission
 import org.junit.Rule
+import org.junit.rules.TestRule
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class FragmentAssemblyJourneyTest {
+    @get:Rule
+    val notificationPermission: TestRule = grantNotificationPermission()
+
     @get:Rule
     val composeRule = createAndroidComposeRule<MainActivity>()
 

@@ -29,12 +29,17 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume
+import com.mkread.app.grantNotificationPermission
 import org.junit.Rule
+import org.junit.rules.TestRule
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class ReaderProcessRestorationTest {
+    @get:Rule
+    val notificationPermission: TestRule = grantNotificationPermission()
+
     @get:Rule
     val composeRule = createAndroidComposeRule<MainActivity>()
 

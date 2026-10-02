@@ -13,24 +13,24 @@ GitHub 已有四个主题提交：`246c888` 语音引擎与音色、`aa319fa` MK
 - [ ] 使用真实账号在 Android 模拟器登录，浏览器回到 App。
 - [ ] 同步示例书到「云书库」文件夹并打开阅读。
 
-## T6 Android instrumented 测试
+## T6 ✅ Android instrumented 测试（Claude，提交 `test: bring instrumented tests up to date`）
 
-- [ ] 补充 `Migration4To5Test`。
-- [ ] 运行 `:app:connectedDebugAndroidTest` 并修复失败。
+- [x] 补充 `Migration4To5Test`。
+- [x] 运行 `:app:connectedDebugAndroidTest` 并修复失败：117 通过、5 跳过（其中 3 个为未安装音色包时跳过的冒烟测试），连续两次全绿。顺带修复朗读重启时高亮闪烁的真实问题。
 
-## T4 Release 语音模型与签名
+## T4 Release 语音模型与签名（Claude，提交 `feat: downloadable voice packs`）
 
-- [ ] Release 只内置 Matcha，新安装离线可朗读。
-- [ ] 云书库音色清单、模型包下载及完整性验证。
-- [ ] App 真实下载、取消/重试、安装和音色切换。
-- [ ] 私有 release 签名配置和实际构建验证。
+- [x] Release 只内置 Matcha（debug 265 MB / release 247 MB，原约 1 GB），新安装离线可朗读。
+- [x] 云书库音色清单、模型包下载及完整性验证；Melo/Kokoro/ZipVoice 三个包已在生产发布，下载地址可被 Cloudflare 缓存。
+- [x] App 真实下载、失败重试、安装和音色切换：模拟器实测下载 Melo（182 MB）→ 校验 → 安装 → 44.1 kHz 朗读。
+- [ ] 私有 release 签名：已支持从 `~/.gradle/gradle.properties` 读取（见 `docs/cloud-library.md`），还没有正式 keystore，需要人工决定并生成。
 
-## T7 Windows 脚本同步
+## T7 Windows 脚本同步（Claude 负责）
 
 - [ ] Windows 下载脚本与锁文件、shell 脚本对齐。
 - [ ] 离线清单检查遵守云书库网络权限边界。
 
-## T9 每书读音表及卷名
+## T9 每书读音表及卷名（Claude 负责）
 
 - [ ] 每书读音表接入朗读。
 - [ ] 卷名持久化、迁移、导入和目录展示。

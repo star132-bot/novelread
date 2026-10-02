@@ -20,6 +20,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 
 import mkbook
 
+from . import voices
 from .auth import Authenticator, Principal
 from .config import Settings
 from .db import Database
@@ -45,6 +46,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.state.authenticator = auth
     app.include_router(auth.router())
+    app.include_router(voices.router(database, settings.data_dir))
 
     def reader(request: Request) -> Principal:
         return auth.require_reader(request)

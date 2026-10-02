@@ -21,6 +21,8 @@ import com.mkread.app.speech.SherpaSpeechEngine
 import com.mkread.app.speech.VoiceCatalog
 import com.mkread.app.speech.VoiceModel
 import com.mkread.app.speech.VoiceOption
+import com.mkread.app.speech.VoicePackStatus
+import com.mkread.app.speech.VoicePackSource
 import com.mkread.app.speech.NarrationSentence
 import com.mkread.app.speech.NarrationSettings
 import com.mkread.app.speech.SpeechAssetInstaller
@@ -50,6 +52,7 @@ class OfflineReaderNarrationController(
     cache: AudioCacheRepository,
     chapterContentRepository: ChapterContentRepository,
     private val voiceSettings: NarrationVoiceSettings,
+    private val voicePacks: VoicePackSource,
     private val scope: CoroutineScope,
 ) : ReaderNarrationController {
     private val applicationContext = context.applicationContext
@@ -82,6 +85,7 @@ class OfflineReaderNarrationController(
     private var starvationResumeIndex: Int? = null
     private val playbackTick = MutableStateFlow(0L)
     private val installMutex = Mutex()
+    private val downloadJobs = mutableMapOf<VoiceModel, Job>()
     private val generationWakeLock = applicationContext.getSystemService(PowerManager::class.java)
         .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "mkread:narration-generation")
         .apply { setReferenceCounted(false) }
@@ -155,14 +159,91 @@ class OfflineReaderNarrationController(
         mutableState.value = current.copy(voiceId = option.id, voiceName = option.displayName, message = null)
         scope.launch {
             voiceSettings.select(option.id)
-            val session = activeSession
-            if (session != null && current.status in REBUILDABLE_STATUSES) {
-                launchGeneration(session, preserveCurrent = true)
-            } else {
-                runCatching { installVoice(option) }
+            if (!isModelReady(option.model)) {
+                // Narration falls back to the bundled voice until the pack finishes downloading.
+                downloadVoicePack(option.model.id)
+                return@launch
+            }
+            rebuildOrInstall(option)
+        }
+    }
+
+    override fun downloadVoicePack(modelId: String) {
+        val model = VoiceModel.fromId(modelId) ?: return
+        if (downloadJobs[model]?.isActive == true) return
+        downloadJobs[model] = scope.launch {
+            updatePackStatus(model, VoicePackStatus.Downloading(0f))
+            val archive = java.io.File(applicationContext.cacheDir, "voice-downloads/${model.id}.zip")
+            try {
+                val remote = voicePacks.available().firstOrNull { it.id == model.id && it.revision == model.revision }
+                    ?: throw java.io.IOException("云端暂时没有这个音色包")
+                archive.parentFile?.mkdirs()
+                voicePacks.download(remote, archive) { progress ->
+                    updatePackStatus(model, VoicePackStatus.Downloading(progress * DOWNLOAD_SHARE))
+                }
+                withGenerationWakeLock {
+                    assetInstaller.installPack(archive, model.id, model.revision) { progress ->
+                        updatePackStatus(
+                            model,
+                            VoicePackStatus.Downloading(DOWNLOAD_SHARE + progress * (1f - DOWNLOAD_SHARE)),
+                        )
+                    }
+                }
+                updatePackStatus(model, VoicePackStatus.Installed)
+                val selected = VoiceCatalog.find(voiceSettings.selectedVoiceId.first())
+                if (selected.model == model) rebuildOrInstall(selected)
+            } catch (failure: CancellationException) {
+                throw failure
+            } catch (failure: Exception) {
+                updatePackStatus(model, VoicePackStatus.Unavailable("下载失败：${failure.message ?: "网络错误"}"))
+            } finally {
+                archive.delete()
             }
         }
     }
+
+    override fun refreshVoicePacks() {
+        scope.launch {
+            val statuses = mutableMapOf<String, VoicePackStatus>()
+            val missing = mutableListOf<VoiceModel>()
+            for (model in VoiceModel.entries) {
+                if (downloadJobs[model]?.isActive == true) continue
+                if (isModelReady(model)) statuses[model.id] = VoicePackStatus.Installed else missing += model
+            }
+            if (missing.isNotEmpty()) {
+                val remote = runCatching { voicePacks.available() }
+                missing.forEach { model ->
+                    statuses[model.id] = remote.fold(
+                        onSuccess = { packs ->
+                            packs.firstOrNull { it.id == model.id && it.revision == model.revision }
+                                ?.let { VoicePackStatus.Available(it.sizeBytes) }
+                                ?: VoicePackStatus.Unavailable("云端暂时没有这个音色包")
+                        },
+                        onFailure = { VoicePackStatus.Unavailable("无法连接云端书库") },
+                    )
+                }
+            }
+            mutableState.value = mutableState.value.copy(voicePacks = mutableState.value.voicePacks + statuses)
+        }
+    }
+
+    private suspend fun rebuildOrInstall(option: VoiceOption) {
+        val session = activeSession
+        if (session != null && mutableState.value.status in REBUILDABLE_STATUSES) {
+            launchGeneration(session, preserveCurrent = true)
+        } else {
+            runCatching { installVoice(option) }
+        }
+    }
+
+    private fun updatePackStatus(model: VoiceModel, status: VoicePackStatus) {
+        mutableState.value = mutableState.value.copy(voicePacks = mutableState.value.voicePacks + (model.id to status))
+    }
+
+    /** Bundled models are copied out of the APK on demand; downloaded packs must already be installed. */
+    private suspend fun isModelReady(model: VoiceModel): Boolean =
+        assetInstaller.isBundled(model.assetPrefixes) ||
+            assetInstaller.installedPackRevision(model.id) == model.revision
 
     /** Copies the selected voice's model out of the APK ahead of the first narration request. */
     fun prepareSelectedVoice() {
@@ -180,9 +261,17 @@ class OfflineReaderNarrationController(
         }
     }
 
+    /**
+     * Makes sure the fallback voice (Matcha) is installed, plus the selected voice when it ships in
+     * the APK. A selected pack that is not downloaded yet is left alone: generation then fails over
+     * to Matcha inside [SpeechGenerationCoordinator] and the picker offers the download.
+     */
     private suspend fun installVoice(option: VoiceOption) = installMutex.withLock {
-        val prefixes = (option.model.assetPrefixes + VoiceModel.MATCHA.assetPrefixes).distinct()
-        assetInstaller.install(prefixes = prefixes, pruneOthers = true)
+        val prefixes = buildList {
+            addAll(VoiceModel.MATCHA.assetPrefixes)
+            if (assetInstaller.isBundled(option.model.assetPrefixes)) addAll(option.model.assetPrefixes)
+        }.distinct()
+        assetInstaller.install(prefixes = prefixes)
     }
 
     override fun setEmotionEnabled(enabled: Boolean) {
@@ -230,6 +319,10 @@ class OfflineReaderNarrationController(
                         ?: voice.displayName,
                 )
                 installVoice(voice)
+                if (!isModelReady(voice.model)) {
+                    showMessage("「${voice.displayName}」音色包还没下载，先用标准女声朗读")
+                    downloadVoicePack(voice.model.id)
+                }
                 var queueAvailable = preserveQueue
                 val startupBuffer = NarrationStartupBuffer<MediaItem>(voice.model.startupBufferSentences)
                 queueSource.sentences(
@@ -522,6 +615,9 @@ class OfflineReaderNarrationController(
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             val sentence = mediaItem?.mediaId?.let(SentenceMediaItemFactory::decode)
+            // Restarting narration clears the queue first; keep highlighting the sentence the
+            // reader just chose until its audio is ready instead of flashing the highlight off.
+            if (sentence == null && mutableState.value.status == ReaderPlaybackStatus.PREPARING) return
             mutableState.value = mutableState.value.copy(activeSentence = sentence)
         }
 
@@ -552,6 +648,7 @@ class OfflineReaderNarrationController(
         const val MIN_SPEED = 0.5f
         const val MAX_SPEED = 3f
         const val MAX_SENTENCES_AHEAD = 12
+        const val DOWNLOAD_SHARE = 0.85f
         const val GENERATION_WAKE_LOCK_TIMEOUT_MILLIS = 2 * 60 * 1_000L
         const val STARVATION_BUFFER_SENTENCES = 2
         val REBUILDABLE_STATUSES = setOf(

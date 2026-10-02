@@ -1,6 +1,10 @@
 package com.mkread.app.feature.reader
 
 import androidx.compose.foundation.clickable
+import com.mkread.app.speech.VoicePackStatus
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -56,6 +60,7 @@ internal fun VoicePickerSheet(
     var expanded by rememberSaveable {
         mutableStateOf(setOf(VoiceGroup.FAST, VoiceGroup.HIGH_QUALITY, VoiceGroup.CLONE, selectedGroup).map { it.name }.toSet())
     }
+    LaunchedEffect(Unit) { onAction(ReaderPlaybackAction.RefreshVoicePacks) }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(Modifier.navigationBarsPadding()) {
             Text(
@@ -80,6 +85,17 @@ internal fun VoicePickerSheet(
                                 expanded = if (isExpanded) expanded - group.name else expanded + group.name
                             },
                         )
+                    }
+                    val packStatus = state.voicePacks[options.first().model.id]
+                    if (packStatus != null && packStatus != VoicePackStatus.Installed) {
+                        item(key = "pack-${group.name}") {
+                            PackStatusRow(
+                                status = packStatus,
+                                onDownload = {
+                                    onAction(ReaderPlaybackAction.DownloadVoicePack(options.first().model.id))
+                                },
+                            )
+                        }
                     }
                     if (isExpanded) {
                         items(options, key = { it.id }) { option ->
@@ -131,6 +147,55 @@ private fun GroupHeader(group: VoiceGroup, count: Int, expanded: Boolean, onTogg
         }
     }
 }
+
+@Composable
+private fun PackStatusRow(status: VoicePackStatus, onDownload: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        when (status) {
+            is VoicePackStatus.Available -> {
+                Text(
+                    text = "需要下载音色包（${formatMegabytes(status.sizeBytes)}），下载后可离线使用",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = onDownload, modifier = Modifier.testTag("voice-pack-download")) {
+                    Text("下载")
+                }
+            }
+            is VoicePackStatus.Downloading -> {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = "正在下载 ${(status.progress * 100).toInt()}%",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    LinearProgressIndicator(
+                        progress = { status.progress },
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    )
+                }
+            }
+            is VoicePackStatus.Unavailable -> {
+                Text(
+                    text = status.message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = onDownload) { Text("重试") }
+            }
+            VoicePackStatus.Installed -> Unit
+        }
+    }
+}
+
+private fun formatMegabytes(bytes: Long): String = "${(bytes + 524_288L) / 1_048_576L} MB"
 
 @Composable
 private fun VoiceRow(option: VoiceOption, selected: Boolean, onClick: () -> Unit) {

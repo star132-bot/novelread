@@ -4,6 +4,7 @@ import androidx.media3.common.Player
 import com.mkread.app.playback.SentenceId
 import com.mkread.app.speech.VoiceCatalog
 import com.mkread.app.speech.VoiceOption
+import com.mkread.app.speech.VoicePackStatus
 import kotlinx.coroutines.flow.StateFlow
 
 enum class ReaderPlaybackStatus {
@@ -23,6 +24,8 @@ data class ReaderPlaybackUiState(
     val voiceId: String = VoiceCatalog.DEFAULT_VOICE_ID,
     val voiceName: String = VoiceCatalog.matcha.displayName,
     val cloneVoices: List<VoiceOption> = emptyList(),
+    /** Download state per voice model id; bundled or installed models report Installed. */
+    val voicePacks: Map<String, VoicePackStatus> = emptyMap(),
 ) {
     val isPlaying: Boolean
         get() = status == ReaderPlaybackStatus.PLAYING
@@ -39,6 +42,8 @@ sealed interface ReaderPlaybackAction {
     data class SetSpeed(val value: Float) : ReaderPlaybackAction
     data class SetEmotionEnabled(val enabled: Boolean) : ReaderPlaybackAction
     data class SetVoice(val voiceId: String) : ReaderPlaybackAction
+    data class DownloadVoicePack(val modelId: String) : ReaderPlaybackAction
+    data object RefreshVoicePacks : ReaderPlaybackAction
 }
 
 interface ReaderNarrationController {
@@ -61,6 +66,10 @@ interface ReaderNarrationController {
     fun setEmotionEnabled(enabled: Boolean)
 
     fun setVoice(voiceId: String)
+
+    fun downloadVoicePack(modelId: String)
+
+    fun refreshVoicePacks()
 }
 
 internal fun Player.resetForNarrationReplacement() {

@@ -47,17 +47,8 @@ class SpikeViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 state = SpikeState.Installing
-                installer.install()
+                installer.install(prefixes = VoiceModel.MATCHA.assetPrefixes)
                 val application = getApplication<Application>()
-                val reference = withContext(Dispatchers.IO) {
-                    val promptDirectory = File(application.filesDir, "voices/builtin-dev/prompts")
-                    VoiceReference(
-                        audioFile = File(promptDirectory, "neutral.wav"),
-                        transcript = File(promptDirectory, "neutral.txt")
-                            .readText(Charsets.UTF_8)
-                            .trim(),
-                    )
-                }
                 val engine = speechEngine ?: SherpaSpeechEngine(application.filesDir)
                     .also { speechEngine = it }
 
@@ -66,9 +57,10 @@ class SpikeViewModel(application: Application) : AndroidViewModel(application) {
                 val result = engine.generate(
                     SpeechRequest(
                         text = text,
-                        reference = reference,
+                        reference = null,
                         quality = SpeechQuality.FLUENT,
                         outputFile = File(application.cacheDir, "spike/ui-preview.wav"),
+                        model = VoiceModel.MATCHA,
                     ),
                 ).getOrThrow()
                 val ready = SpikeState.Ready(

@@ -150,6 +150,8 @@ fun ReaderRoute(
                     controller.setEmotionEnabled(action.enabled)
                 }
                 is ReaderPlaybackAction.SetVoice -> controller.setVoice(action.voiceId)
+                is ReaderPlaybackAction.DownloadVoicePack -> controller.downloadVoicePack(action.modelId)
+                ReaderPlaybackAction.RefreshVoicePacks -> controller.refreshVoicePacks()
             }
         },
         onBack = { viewModel.onAction(ReaderAction.Exit) },

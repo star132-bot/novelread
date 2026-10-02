@@ -12,6 +12,9 @@ staging="$local_assets/debug-assets-staging"
 lock="$repo/speech-assets.lock.json"
 
 mkdir -p "$downloads" "$repo/app/libs"
+# Optional URL prefix for slow networks, e.g. MKREAD_ASSET_MIRROR=https://ghfast.top/ on servers in
+# mainland China. Every file is still checked against speech-assets.lock.json.
+mirror="${MKREAD_ASSET_MIRROR:-}"
 
 # name|url|size|sha256 from the lock file
 python3 - "$lock" >"$local_assets/lock.tsv" <<'PY'
@@ -24,7 +27,7 @@ while IFS='|' read -r name url size sha; do
   dest="$downloads/$name"
   if [[ ! -f "$dest" ]]; then
     echo "Downloading $name..."
-    curl -fL --retry 3 -o "$dest.partial" "$url"
+    curl -fL --retry 3 -o "$dest.partial" "${mirror}${url}"
     mv -f "$dest.partial" "$dest"
   else
     echo "Reusing $dest"
@@ -117,6 +120,10 @@ PY
 rm -rf "$debug_assets"
 mv "$staging" "$debug_assets"
 cp "$downloads/sherpa-onnx-1.13.4.aar" "$repo/app/libs/sherpa-onnx-1.13.4.aar"
+
+# bundled-assets: what every APK ships (Matcha only).
+# voice-packs/: the other voices as downloadable packs for the cloud library.
+python3 "$repo/scripts/build-voice-packs.py" "$debug_assets" "$local_assets"
 
 echo "Speech assets ready under $debug_assets"
 echo "sherpa-onnx AAR ready at $repo/app/libs/sherpa-onnx-1.13.4.aar"

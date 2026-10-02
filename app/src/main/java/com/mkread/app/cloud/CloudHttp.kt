@@ -68,6 +68,7 @@ internal object CloudHttp {
         target: File,
         expectedSize: Long,
         expectedSha256: String,
+        onProgress: (Float) -> Unit = {},
     ) = withContext(Dispatchers.IO) {
         val partial = File(target.parentFile, "${target.name}.partial")
         try {
@@ -85,6 +86,7 @@ internal object CloudHttp {
                             if (total > expectedSize) throw IOException("Download is larger than announced")
                             digest.update(buffer, 0, read)
                             output.write(buffer, 0, read)
+                            onProgress(total.toFloat() / expectedSize.coerceAtLeast(1L))
                         }
                     }
                 }

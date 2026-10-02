@@ -33,8 +33,23 @@ android {
         )
     }
 
+    // Release signing comes from ~/.gradle/gradle.properties (never from the repository):
+    //   mkread.signing.storeFile, mkread.signing.storePassword, mkread.signing.keyAlias, mkread.signing.keyPassword
+    val releaseKeystore = providers.gradleProperty("mkread.signing.storeFile").orNull
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = file(releaseKeystore)
+                storePassword = providers.gradleProperty("mkread.signing.storePassword").get()
+                keyAlias = providers.gradleProperty("mkread.signing.keyAlias").get()
+                keyPassword = providers.gradleProperty("mkread.signing.keyPassword").get()
+            }
+        }
+    }
+
     buildTypes {
         release {
+            if (releaseKeystore != null) signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -54,11 +69,16 @@ android {
     }
 
     sourceSets {
-        getByName("debug") {
-            val localDebugAssets = rootProject.file(".local-assets/debug-assets")
-            if (localDebugAssets.isDirectory) {
-                assets.srcDir(localDebugAssets)
-            }
+        // Every APK ships the Matcha voice; other voices are downloaded from the cloud library.
+        // Pass -Pmkread.bundleAllVoices=true to bundle all of them for offline development.
+        val bundleAllVoices = providers.gradleProperty("mkread.bundleAllVoices")
+            .map(String::toBoolean)
+            .getOrElse(false)
+        val speechAssets = rootProject.file(
+            if (bundleAllVoices) ".local-assets/debug-assets" else ".local-assets/bundled-assets",
+        )
+        if (speechAssets.isDirectory) {
+            getByName("main").assets.srcDir(speechAssets)
         }
         getByName("androidTest").assets.srcDir("$projectDir/schemas")
     }

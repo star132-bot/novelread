@@ -61,6 +61,38 @@ python3 tools/mkbook/mkbook.py build 书名.mktxt --previous 书名.mkbook -o �
 
 同一本书再次上传时 `revision` 必须更大；校验不通过会返回具体原因。
 
+## 音色包
+
+APK 只内置「标准女声」（Matcha）。高音质（MeloTTS）、多音色（Kokoro）、声音克隆（ZipVoice）是可下载的音色包：
+
+- `GET /api/v1/voices` 列出音色包（无需登录），下载地址形如 `/api/v1/voices/files/<id>-r<revision>-<sha前16位>.zip`，内容永不变化，Cloudflare 会缓存。
+- 包格式：ZIP 内含 `pack.json`（id、revision、每个文件的 size 和 SHA-256）和按安装路径存放的文件；服务端发布时、App 安装时都会逐个文件校验。
+- 包的 `revision` 必须与 App 里 `VoiceModel.revision` 一致；改模型或合成参数时两边一起升级。
+
+在应用服务器上（国内服务器经 GitHub 镜像下载，所有文件仍按 `speech-assets.lock.json` 校验）：
+
+```bash
+cd /opt/mkread-library/voice-build        # 含 scripts/ 和 speech-assets.lock.json
+MKREAD_ASSET_MIRROR=https://ghfast.top/ ./scripts/fetch-speech-assets.sh
+cp .local-assets/voice-packs/*.zip /srv/mkread-library/incoming/ && chown 10001:10001 /srv/mkread-library/incoming/*.zip
+cd /opt/mkread-library && docker compose exec -T api sh -c "python -m app.voices publish /data/incoming/*.zip"
+```
+
+本地开发想把所有音色打进 APK：`./gradlew :app:assembleDebug -Pmkread.bundleAllVoices=true`。
+
+## Release 签名
+
+在 `~/.gradle/gradle.properties`（不入库）里配置：
+
+```properties
+mkread.signing.storeFile=/path/to/mkread-release.jks
+mkread.signing.storePassword=...
+mkread.signing.keyAlias=mkread
+mkread.signing.keyPassword=...
+```
+
+没有配置时 `assembleRelease` 产出未签名包。
+
 ## 更新服务端
 
 ```bash

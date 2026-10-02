@@ -6,6 +6,8 @@ from contextlib import contextmanager
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
+from .voices import SCHEMA as VOICE_SCHEMA
+
 SCHEMA = """
 CREATE SEQUENCE IF NOT EXISTS catalog_seq;
 
@@ -87,6 +89,7 @@ class Database:
         self.pool.open(wait=True, timeout=30)
         with self.pool.connection() as conn:
             conn.execute(SCHEMA)
+            conn.execute(VOICE_SCHEMA)
 
     def close(self) -> None:
         self.pool.close()

@@ -132,6 +132,110 @@ class SpeechAssetInstaller(
         }
     }
 
+    /** True when the APK itself ships files under any of [prefixes]. */
+    suspend fun isBundled(prefixes: Collection<String>): Boolean = withContext(ioDispatcher) {
+        runCatching {
+            val bytes = source.open(MANIFEST_ASSET_PATH).use { it.readBounded(MAX_MANIFEST_BYTES) }
+            SpeechAssetManifest.parse(bytes.toString(Charsets.UTF_8)).files
+                .any { record -> prefixes.any { record.relativePath.startsWith(it) } }
+        }.getOrDefault(false)
+    }
+
+    /** Revision of a downloaded voice pack whose files are all still in place, or null. */
+    suspend fun installedPackRevision(packId: String): Int? = withContext(ioDispatcher) {
+        val marker = packMarker(packId)
+        if (!marker.isFile) return@withContext null
+        runCatching {
+            val text = marker.readText(Charsets.UTF_8)
+            val manifest = SpeechAssetManifest.parse(text)
+            val json = JSONObject(text)
+            require(json.getString("id") == packId)
+            val complete = manifest.files.all { record ->
+                installedFile(record).let { it.isFile && it.length() == record.byteSize }
+            }
+            json.getInt("revision").takeIf { complete }
+        }.getOrNull()
+    }
+
+    /**
+     * Installs a downloaded voice pack ZIP (pack.json + files at their install paths). Every file
+     * is size- and SHA-256-checked while extracting into staging, then moved into place; the pack
+     * marker is written last so an interrupted install never looks complete.
+     */
+    suspend fun installPack(
+        archive: File,
+        packId: String,
+        revision: Int,
+        onProgress: (Float) -> Unit = {},
+    ) = withContext(ioDispatcher) {
+        java.util.zip.ZipFile(archive).use { zip ->
+            val manifestEntry = zip.getEntry(PACK_MANIFEST) ?: error("Voice pack has no pack.json")
+            val manifestBytes = zip.getInputStream(manifestEntry).use { it.readBounded(MAX_MANIFEST_BYTES) }
+            val manifestText = manifestBytes.toString(Charsets.UTF_8)
+            val manifest = SpeechAssetManifest.parse(manifestText)
+            val json = JSONObject(manifestText)
+            require(json.getString("id") == packId) { "Voice pack id does not match" }
+            require(json.getInt("revision") == revision) { "Voice pack revision does not match" }
+            val listed = manifest.files.map(SpeechAssetFile::relativePath).toSet()
+            val names = zip.entries().asSequence().map { it.name }.toSet()
+            require(names == listed + PACK_MANIFEST) { "Voice pack contains unexpected files" }
+
+            val stagingDirectory = File(File(filesDir, STAGING_DIRECTORY), stagingName())
+            check(stagingDirectory.mkdirs()) { "Unable to create voice pack staging directory" }
+            try {
+                val total = manifest.files.sumOf(SpeechAssetFile::byteSize).coerceAtLeast(1L)
+                var done = 0L
+                for (record in manifest.files) {
+                    currentCoroutineContext().ensureActive()
+                    val staged = File(stagingDirectory, record.relativePath)
+                    requireDirectory(staged.parentFile, "voice pack staging")
+                    zip.getInputStream(zip.getEntry(record.relativePath)).use { input ->
+                        FileOutputStream(staged).use { output ->
+                            val digest = MessageDigest.getInstance(SHA_256)
+                            val buffer = ByteArray(COPY_BUFFER_BYTES)
+                            var copied = 0L
+                            while (true) {
+                                val count = input.read(buffer)
+                                if (count < 0) break
+                                copied += count
+                                require(copied <= record.byteSize) { "Voice pack file is larger than declared" }
+                                digest.update(buffer, 0, count)
+                                output.write(buffer, 0, count)
+                                done += count
+                                onProgress(done.toFloat() / total)
+                            }
+                            require(copied == record.byteSize && digest.toHex() == record.sha256) {
+                                "Voice pack file failed verification: ${record.relativePath}"
+                            }
+                        }
+                    }
+                }
+                val installed = completionFile().readManifestOrNull()?.files.orEmpty()
+                    .associateBy(SpeechAssetFile::relativePath)
+                    .toMutableMap()
+                manifest.files.forEach { record ->
+                    val destination = installedFile(record)
+                    requireDirectory(destination.parentFile, "installed voice pack")
+                    atomicReplace(File(stagingDirectory, record.relativePath), destination)
+                    installed[record.relativePath] = record
+                }
+                writeCompletion(installed)
+                val marker = packMarker(packId)
+                requireDirectory(marker.parentFile, "voice pack marker")
+                val partial = File(marker.parentFile, "${marker.name}.partial")
+                partial.writeBytes(manifestBytes)
+                atomicReplace(partial, marker)
+            } finally {
+                stagingDirectory.deleteRecursively()
+            }
+        }
+    }
+
+    private fun packMarker(packId: String): File {
+        require(PACK_ID.matches(packId)) { "Voice pack id is invalid" }
+        return File(filesDir, "$PACK_MARKER_DIRECTORY/$packId.json")
+    }
+
     private fun installedFile(record: SpeechAssetFile) = File(filesDir, record.relativePath)
 
     private fun writeCompletion(records: Map<String, SpeechAssetFile>) {
@@ -229,6 +333,9 @@ class SpeechAssetInstaller(
         const val MANIFEST_ASSET_PATH = "speech-assets.json"
         const val COMPLETION_FILE = "speech-assets.complete.json"
         const val MODELS_DIRECTORY = "models"
+        const val PACK_MANIFEST = "pack.json"
+        const val PACK_MARKER_DIRECTORY = "voice-packs"
+        val PACK_ID = Regex("[a-z0-9][a-z0-9-]{1,40}")
         const val STAGING_DIRECTORY = "speech-staging"
         const val SHA_256 = "SHA-256"
         const val COPY_BUFFER_BYTES = 64 * 1024

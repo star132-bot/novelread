@@ -9,6 +9,7 @@ import androidx.work.WorkManager
 import androidx.work.DelegatingWorkerFactory
 import com.mkread.app.cloud.CloudLibrary
 import com.mkread.app.cloud.CloudSyncWorkerFactory
+import com.mkread.app.cloud.CloudVoicePackSource
 import com.mkread.app.core.database.MkreadDatabase
 import com.mkread.app.core.files.FileBookStorage
 import com.mkread.app.feature.library.AndroidDocumentAccess
@@ -106,6 +107,7 @@ class AppContainer(
         cache = audioCacheRepository,
         chapterContentRepository = chapterContentRepository,
         voiceSettings = NarrationVoiceSettings(preferencesDataStore),
+        voicePacks = CloudVoicePackSource(cloudLibrary),
         scope = applicationScope,
     ).also { it.prepareSelectedVoice() }
     val readingPositionRepository = RoomReadingPositionRepository(database)

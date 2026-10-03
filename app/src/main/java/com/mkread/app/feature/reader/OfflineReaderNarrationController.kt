@@ -153,11 +153,13 @@ class OfflineReaderNarrationController(
     }
 
     override fun setVoice(voiceId: String) {
-        val current = mutableState.value
-        val option = current.cloneVoices.firstOrNull { it.id == voiceId } ?: VoiceCatalog.find(voiceId)
-        if (current.voiceId == option.id) return
-        mutableState.value = current.copy(voiceId = option.id, voiceName = option.displayName, message = null)
         scope.launch {
+            // A voice may have been imported since the list was last read (voice library, file import).
+            val cloneVoices = refreshCloneVoices()
+            val current = mutableState.value
+            val option = cloneVoices.firstOrNull { it.id == voiceId } ?: VoiceCatalog.find(voiceId)
+            if (current.voiceId == option.id && voiceSettings.hasSelection()) return@launch
+            mutableState.value = current.copy(voiceId = option.id, voiceName = option.displayName, message = null)
             voiceSettings.select(option.id)
             if (!isModelReady(option.model)) {
                 // Narration falls back to the bundled voice until the pack finishes downloading.
@@ -204,6 +206,7 @@ class OfflineReaderNarrationController(
 
     override fun refreshVoicePacks() {
         scope.launch {
+            refreshCloneVoices()
             val statuses = mutableMapOf<String, VoicePackStatus>()
             val missing = mutableListOf<VoiceModel>()
             for (model in VoiceModel.entries) {
@@ -245,18 +248,28 @@ class OfflineReaderNarrationController(
         assetInstaller.isBundled(model.assetPrefixes) ||
             assetInstaller.installedPackRevision(model.id) == model.revision
 
+    /** Re-reads the imported voices and refreshes the selected voice's name. */
+    private suspend fun refreshCloneVoices(): List<VoiceOption> {
+        val cloneVoices = runCatching {
+            installedVoices.installedVoices().map(VoiceCatalog::cloneOption)
+        }.getOrDefault(emptyList())
+        val current = mutableState.value
+        mutableState.value = current.copy(
+            cloneVoices = cloneVoices,
+            voiceName = cloneVoices.firstOrNull { it.id == current.voiceId }?.displayName ?: current.voiceName,
+        )
+        return cloneVoices
+    }
+
     /** Copies the selected voice's model out of the APK ahead of the first narration request. */
     fun prepareSelectedVoice() {
         scope.launch {
+            // Voices chosen with the old voice library lived in a separate file narration never read.
+            val legacy = InstalledVoiceProvider.takeLegacySelection(applicationContext.filesDir)
+            if (legacy != null && !voiceSettings.hasSelection()) voiceSettings.select(VoiceCatalog.cloneId(legacy))
             val option = VoiceCatalog.find(voiceSettings.selectedVoiceId.first())
-            val cloneVoices = runCatching {
-                installedVoices.installedVoices().map(VoiceCatalog::cloneOption)
-            }.getOrDefault(emptyList())
-            mutableState.value = mutableState.value.copy(
-                voiceId = option.id,
-                voiceName = cloneVoices.firstOrNull { it.id == option.id }?.displayName ?: option.displayName,
-                cloneVoices = cloneVoices,
-            )
+            mutableState.value = mutableState.value.copy(voiceId = option.id, voiceName = option.displayName)
+            refreshCloneVoices()
             runCatching { installVoice(option) }
         }
     }

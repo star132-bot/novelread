@@ -22,6 +22,13 @@ class VoiceCatalogTest {
     }
 
     @Test
+    fun importedVoicesRoundTripThroughTheirCatalogId() {
+        val option = VoiceCatalog.find(VoiceCatalog.cloneId("cn.mkread.yunlan"))
+        assertEquals(VoiceModel.ZIPVOICE, option.model)
+        assertEquals("cn.mkread.yunlan", option.cloneVoiceId)
+    }
+
+    @Test
     fun cloneIdsResolveToZipVoice() {
         val option = VoiceCatalog.find("clone:studio.anna")
         assertEquals(VoiceModel.ZIPVOICE, option.model)

@@ -35,6 +35,20 @@ enum class VoiceModel(
 
     fun modelDirectory(filesDir: File): File = File(filesDir, "models/$directory")
 
+    /**
+     * Files and directories the native engine opens. sherpa-onnx crashes the process (instead of
+     * failing) when one is missing, so the engine checks these before loading the model.
+     */
+    fun requiredPaths(filesDir: File): List<File> {
+        val names = when (this) {
+            ZIPVOICE -> listOf("tokens.txt", "encoder.int8.onnx", "decoder.int8.onnx", "vocos_24khz.onnx", "lexicon.txt", "espeak-ng-data")
+            MATCHA -> listOf("model-steps-3.onnx", "vocos-16khz-univ.onnx", "tokens.txt", "lexicon.txt", "espeak-ng-data")
+            MELO -> listOf("model.onnx", "tokens.txt", "lexicon.txt", "dict")
+            KOKORO -> listOf("model.onnx", "voices.bin", "tokens.txt", "lexicon-us-en.txt", "lexicon-zh.txt", "espeak-ng-data", "dict")
+        }
+        return names.map { File(modelDirectory(filesDir), it) }
+    }
+
     fun toConfig(filesDir: File, numThreads: Int = DEFAULT_THREADS): OfflineTtsConfig {
         val root = modelDirectory(filesDir)
         fun path(name: String) = File(root, name).path

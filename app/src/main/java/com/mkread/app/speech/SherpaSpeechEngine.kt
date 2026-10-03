@@ -72,6 +72,10 @@ class SherpaSpeechEngine(
 
     private fun ensureLoaded(model: VoiceModel): OfflineTts {
         nativeTts?.takeIf { loadedModel == model }?.let { return it }
+        // A missing file makes sherpa-onnx hand back a null instance that segfaults on first use;
+        // failing here (before releasing the loaded model) lets narration fall back cheaply.
+        val missing = model.requiredPaths(filesDir).filterNot(File::exists)
+        check(missing.isEmpty()) { "${model.id} voice pack is not installed" }
         releaseLocked()
         val created = OfflineTts(config = model.toConfig(filesDir, numThreads))
         try {

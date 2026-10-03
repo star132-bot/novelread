@@ -144,8 +144,22 @@ class InstalledVoiceProvider(
         private const val CHECKSUMS_FILE_NAME = "checksums.json"
         private const val NEUTRAL_STYLE = "neutral"
         private const val SHA_256 = "SHA-256"
-        private val VOICE_ID = Regex("[a-z0-9]+(?:[.-][a-z0-9]+)+")
+        /** Same rule as [MkVoiceImporter], plus the bundled sample voice, so every importable voice is listed. */
+        private val VOICE_ID = Regex("builtin-dev|[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9-]*)+")
 
+        /**
+         * Returns the voice chosen with the old voice library (before narration settings existed) and
+         * forgets it, so it can be carried over once. Null when there is nothing to carry over.
+         */
+        fun takeLegacySelection(filesDir: File): String? {
+            val file = File(File(filesDir, VOICES_DIRECTORY), SELECTION_FILE_NAME)
+            if (!file.isFile) return null
+            val voiceId = runCatching { file.readText(Charsets.UTF_8).trim() }.getOrNull()
+            file.delete()
+            return voiceId?.takeIf { VOICE_ID.matches(it) && it != BUILT_IN_VOICE_ID && File(File(filesDir, VOICES_DIRECTORY), it).isDirectory }
+        }
+
+        /** Legacy selection file; narration now reads [NarrationVoiceSettings]. Kept for tests and migration. */
         fun select(filesDir: File, voiceId: String) {
             require(VOICE_ID.matches(voiceId)) { "Voice id is invalid" }
             val voicesRoot = File(filesDir, VOICES_DIRECTORY)

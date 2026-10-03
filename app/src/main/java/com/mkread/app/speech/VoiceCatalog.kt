@@ -2,6 +2,7 @@ package com.mkread.app.speech
 
 import java.security.MessageDigest
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -66,8 +67,11 @@ object VoiceCatalog {
 
     val presets: List<VoiceOption> = listOf(matcha, melo) + kokoro + builtInClone
 
+    /** Catalog id of an imported (cloned) voice package. */
+    fun cloneId(voicePackageId: String) = CLONE_PREFIX + voicePackageId
+
     fun cloneOption(voice: InstalledVoiceSummary) = VoiceOption(
-        id = CLONE_PREFIX + voice.id,
+        id = cloneId(voice.id),
         model = VoiceModel.ZIPVOICE,
         displayName = voice.displayName,
         description = "声音克隆 · ${voice.emotions.size} 种情绪",
@@ -105,6 +109,9 @@ class NarrationVoiceSettings(private val dataStore: DataStore<Preferences>) {
     suspend fun select(voiceId: String) {
         dataStore.edit { preferences -> preferences[SELECTED_VOICE_KEY] = voiceId }
     }
+
+    /** Whether a voice has ever been chosen (as opposed to running on the default). */
+    suspend fun hasSelection(): Boolean = dataStore.data.first().contains(SELECTED_VOICE_KEY)
 
     private companion object {
         val SELECTED_VOICE_KEY = stringPreferencesKey("narration_voice_id")

@@ -61,8 +61,9 @@
     <string name="reader_night_mode_on">关闭夜间模式</string>
     <string name="voice_library">音色库</string>
     <string name="voice_import_action">导入音色</string>
-    <string name="voice_builtin">内置音色</string>
+    <string name="voice_builtin">标准女声（默认）</string>
     <string name="voice_selected">已切换音色</string>
+    <string name="voice_selected_downloading">已选择这个音色。声音克隆需要先下载音色包，下载完成前先用标准女声朗读</string>
     <string name="voice_selection_failed">切换音色失败</string>
     <string name="create_folder">新建文件夹</string>
     <string name="rename_folder">重命名文件夹</string>

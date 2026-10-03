@@ -1,5 +1,6 @@
 package com.mkread.app.speech
 
+import com.mkread.app.MkreadApplication
 import android.content.ContentProvider
 import android.content.ContentValues
 import android.database.Cursor
@@ -56,7 +57,9 @@ class AdbVoiceImportProvider : ContentProvider() {
             val appContext = requireNotNull(context)
             val imported = MkVoiceImporter(File(appContext.filesDir, VOICES_DIRECTORY))
                 .importPackage(staged, replace = replaceExisting)
-            InstalledVoiceProvider.select(appContext.filesDir, imported.id)
+            // Select through narration settings (also starts the voice-cloning pack download if needed).
+            (appContext.applicationContext as MkreadApplication).container.narrationController
+                .setVoice(VoiceCatalog.cloneId(imported.id))
             Bundle().apply {
                 putString(STATUS_KEY, STATUS_OK)
                 putString(VOICE_ID_KEY, imported.id)

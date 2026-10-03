@@ -50,6 +50,7 @@ fun MkreadNavHost(
             val libraryViewModel: LibraryViewModel = viewModel(factory = factory)
             LibraryRoute(
                 viewModel = libraryViewModel,
+                narration = container.narrationController,
                 onOpenBook = openBook,
                 onOpenSpeechDebug = if (BuildConfig.DEBUG) {
                     { navController.navigate(SPEECH_DEBUG_ROUTE) }

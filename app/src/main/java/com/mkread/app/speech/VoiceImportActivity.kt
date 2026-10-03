@@ -1,5 +1,6 @@
 package com.mkread.app.speech
 
+import com.mkread.app.MkreadApplication
 import android.app.AlertDialog
 import android.content.Intent
 import android.net.Uri
@@ -116,7 +117,9 @@ class VoiceImportActivity : ComponentActivity() {
                     runCatching {
                         val imported = MkVoiceImporter(File(filesDir, VOICES_DIRECTORY))
                             .importPackage(prepared.file, replace = false)
-                        InstalledVoiceProvider.select(filesDir, imported.id)
+                        // Select through narration settings (also starts the voice-cloning pack download if needed).
+                        (application as MkreadApplication).container.narrationController
+                            .setVoice(VoiceCatalog.cloneId(imported.id))
                         imported
                     }
                 } finally {

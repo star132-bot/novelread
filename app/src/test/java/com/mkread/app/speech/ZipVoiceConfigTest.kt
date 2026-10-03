@@ -2,6 +2,7 @@ package com.mkread.app.speech
 
 import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ZipVoiceConfigTest {
@@ -23,5 +24,16 @@ class ZipVoiceConfigTest {
         assertEquals(4, config.model.numThreads)
         assertEquals(1, config.maxNumSentences)
         assertEquals(0.2f, config.silenceScale)
+    }
+
+    @Test
+    fun everyRequiredPath_isOneTheEngineConfigOpens() {
+        val filesDir = File("build/test-private-files").absoluteFile
+        VoiceModel.entries.forEach { model ->
+            val config = model.toConfig(filesDir).toString()
+            model.requiredPaths(filesDir).forEach { path ->
+                assertTrue("${model.id}: ${path.name}", path.path in config)
+            }
+        }
     }
 }

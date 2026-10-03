@@ -71,12 +71,14 @@ import com.mkread.app.R
 import com.mkread.app.core.model.BookSummary
 import com.mkread.app.core.model.LibrarySort
 import com.mkread.app.core.database.ShelfFolderEntity
+import com.mkread.app.feature.reader.ReaderNarrationController
 import com.mkread.app.speech.InstalledVoiceProvider
 import com.mkread.app.speech.InstalledVoiceSummary
+import com.mkread.app.speech.VoiceCatalog
 import com.mkread.app.speech.VoiceImportActivity
-import kotlinx.coroutines.Dispatchers
+import com.mkread.app.speech.VoiceModel
+import com.mkread.app.speech.VoicePackStatus
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 sealed interface LibraryDialog {
     val book: BookSummary
@@ -96,6 +98,7 @@ private data class FragmentAssemblyDialogState(
 @Composable
 fun LibraryRoute(
     viewModel: LibraryViewModel,
+    narration: ReaderNarrationController,
     onOpenBook: ((String) -> Unit)?,
     onOpenSpeechDebug: (() -> Unit)?,
     onOpenCloud: (() -> Unit)? = null,
@@ -111,7 +114,7 @@ fun LibraryRoute(
     var dialog by remember { mutableStateOf<LibraryDialog?>(null) }
     var voiceDialogVisible by remember { mutableStateOf(false) }
     var installedVoices by remember { mutableStateOf<List<InstalledVoiceSummary>>(emptyList()) }
-    var selectedVoiceId by remember { mutableStateOf(InstalledVoiceProvider.BUILT_IN_VOICE_ID) }
+    val narrationState by narration.state.collectAsState()
     var folderNameDialog by remember { mutableStateOf<FolderNameDialogState?>(null) }
     var movingBook by remember { mutableStateOf<BookSummary?>(null) }
     var deletingFolder by remember { mutableStateOf<ShelfFolderEntity?>(null) }
@@ -149,9 +152,8 @@ fun LibraryRoute(
     }
     fun openVoiceLibrary() {
         scope.launch {
-            val provider = InstalledVoiceProvider(context.filesDir)
-            installedVoices = provider.installedVoices()
-            selectedVoiceId = provider.selectedVoiceId()
+            installedVoices = InstalledVoiceProvider(context.filesDir).installedVoices()
+            narration.refreshVoicePacks()
             voiceDialogVisible = true
         }
     }
@@ -221,20 +223,20 @@ fun LibraryRoute(
     if (voiceDialogVisible) {
         VoiceLibraryDialog(
             voices = installedVoices,
-            selectedVoiceId = selectedVoiceId,
+            selectedVoiceId = narrationState.voiceId,
             onSelect = { voiceId ->
+                // Narration reads its voice from the narration settings; the controller also starts the
+                // voice-cloning pack download when an imported voice needs it.
+                narration.setVoice(voiceId)
+                voiceDialogVisible = false
+                val cloneReady = narrationState.voicePacks[VoiceModel.ZIPVOICE.id] is VoicePackStatus.Installed
                 scope.launch {
-                    runCatching {
-                        withContext(Dispatchers.IO) {
-                            InstalledVoiceProvider.select(context.filesDir, voiceId)
-                        }
-                    }.onSuccess {
-                        selectedVoiceId = voiceId
-                        voiceDialogVisible = false
-                        snackbarHostState.showSnackbar(context.getString(R.string.voice_selected))
-                    }.onFailure {
-                        snackbarHostState.showSnackbar(context.getString(R.string.voice_selection_failed))
-                    }
+                    snackbarHostState.showSnackbar(
+                        context.getString(
+                            if (voiceId == VoiceCatalog.DEFAULT_VOICE_ID || cloneReady) R.string.voice_selected
+                            else R.string.voice_selected_downloading,
+                        ),
+                    )
                 }
             },
             onDismiss = { voiceDialogVisible = false },
@@ -757,14 +759,15 @@ private fun VoiceLibraryDialog(
     onSelect: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    // Ids are narration catalog ids: the default voice, or "clone:<package id>" for imported voices.
     val options = listOf(
         InstalledVoiceSummary(
-            id = InstalledVoiceProvider.BUILT_IN_VOICE_ID,
+            id = VoiceCatalog.DEFAULT_VOICE_ID,
             displayName = stringResource(R.string.voice_builtin),
             languages = listOf("zh-CN", "en"),
             emotions = listOf("neutral"),
         ),
-    ) + voices
+    ) + voices.map { it.copy(id = VoiceCatalog.cloneId(it.id)) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.voice_library)) },

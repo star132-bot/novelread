@@ -30,6 +30,8 @@ class Settings:
     # Trusted platforms that call the admin API for a signed-in person of theirs (e.g. Server Hub):
     # "name:role:token" entries, comma separated. Requests must name the person in X-Admin-Actor.
     admin_service_tokens: list[str] = field(default_factory=lambda: _list("ADMIN_SERVICE_TOKENS"))
+    # When set, /admin redirects here (the MKread module in Server Hub); the admin API stays available.
+    admin_console_url: str = field(default_factory=lambda: os.environ.get("ADMIN_CONSOLE_URL", "").strip())
     # Origins allowed to show the admin console in an iframe, e.g. https://hub.mkauth.sbs.
     admin_embed_origins: list[str] = field(default_factory=lambda: _list("ADMIN_EMBED_ORIGINS"))
     session_days: int = field(default_factory=lambda: int(os.environ.get("SESSION_DAYS", "180")))

@@ -745,7 +745,10 @@ def install(app: FastAPI, settings, database, auth: Authenticator, books: BookSt
     headers = ui_headers(settings.admin_embed_origins)
 
     @app.get("/admin/", include_in_schema=False)
-    def console() -> FileResponse:
+    def console():
+        # The console moved into Server Hub; keep the page only as a fallback when no target is configured.
+        if settings.admin_console_url:
+            return RedirectResponse(settings.admin_console_url, status_code=302)
         return FileResponse(UI_DIR / "index.html", media_type="text/html; charset=utf-8", headers=headers)
 
     @app.get("/admin/embed", include_in_schema=False)

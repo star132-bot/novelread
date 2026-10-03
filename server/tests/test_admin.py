@@ -256,6 +256,15 @@ class AdminTest(unittest.TestCase):
         page = self.client.get("/admin/")
         self.assertIn("frame-ancestors 'self' https://hub.example.test;", page.headers["content-security-policy"])
 
+    def test_console_redirects_to_server_hub_when_configured(self):
+        self.assertEqual(200, self.client.get("/admin/").status_code)
+        settings = Settings(database_url=os.environ["TEST_DATABASE_URL"], data_dir=self.data_dir, read_access="login",
+                            admin_subjects=[], admin_api_token="", admin_console_url="https://hub.example.test/")
+        with TestClient(create_app(settings), follow_redirects=False) as client:
+            moved = client.get("/admin/")
+            self.assertEqual((302, "https://hub.example.test/"), (moved.status_code, moved.headers["location"]))
+            self.assertEqual(401, client.get("/api/v1/admin/session").status_code, "the admin API stays available")
+
     # ---------------------------------------------------------------- lists and errors
 
     def test_lists_paginate_sort_filter_and_export_csv(self):

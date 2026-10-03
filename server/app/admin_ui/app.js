@@ -1057,7 +1057,7 @@
       h("div", { class: "grid-2" },
         h("div", { class: "card panel" }, h("div", { class: "panel-head" }, h("h2", {}, "当前账号")),
           facts([["名称", session.name || "—"], ["Subject", h("span", { class: "mono" }, session.subject)],
-            ["角色", ROLE_NAMES[session.role]], ["登录方式", { console: "MKauth 单点登录", device: "App 设备令牌", token: "管理脚本令牌" }[session.via] || session.via]]),
+            ["角色", ROLE_NAMES[session.role]], ["登录方式", { console: "MKauth 单点登录", device: "App 设备令牌", token: "管理脚本令牌", service: "受信任平台代理（如 Server Hub）" }[session.via] || session.via]]),
           h("div", { class: "section" }, h("h3", {}, "拥有的权限"),
             h("ul", { class: "timeline" }, session.permissions.map((p) => h("li", {}, h("i", { class: "green" }), h("div", {}, permissionNames[p] || p)))))),
         h("div", { class: "stack" },

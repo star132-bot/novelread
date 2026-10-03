@@ -14,7 +14,17 @@ services:
       - /srv/mkread-library:/data
     ports:
       - "127.0.0.1:8095:8000"
+    networks:
+      default: {}
+      # Shared with Server Hub, which proxies the admin API at http://mkread-library:8000.
+      # Create once on the host: docker network create platform-admin
+      platform-admin:
+        aliases: [mkread-library]
     mem_limit: 512m
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
+
+networks:
+  platform-admin:
+    external: true

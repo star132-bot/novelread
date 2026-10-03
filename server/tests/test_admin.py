@@ -21,6 +21,7 @@ from app.main import create_app  # noqa: E402
 
 ISSUER = "https://auth.example.test"
 ADMIN = {"X-MKread-Admin": "1"}
+SERVICE_TOKEN = "s" * 40
 
 
 def fake_mkauth(userinfo: dict):
@@ -64,6 +65,7 @@ class AdminTest(unittest.TestCase):
             read_access="login",
             admin_subjects=["root-1"],
             admin_api_token="",
+            admin_service_tokens=[f"server-hub:operator:{SERVICE_TOKEN}"],
         )
         self.app = create_app(settings)
         self.client = TestClient(self.app, follow_redirects=False).__enter__()
@@ -204,6 +206,25 @@ class AdminTest(unittest.TestCase):
         detail = self.client.get("/api/v1/admin/users/reader-1", headers=operator["console"]).json()
         self.assertEqual(["revoked"], [s["state"] for s in detail["sessions"]])
         self.assertEqual("user.revoke_sessions", detail["audit"][0]["action"])
+
+    def test_trusted_platform_acts_for_a_named_person(self):
+        self.user("reader-1")
+        service = {"Authorization": f"Bearer {SERVICE_TOKEN}"}
+        anonymous = self.client.get("/api/v1/admin/users", headers=service)
+        self.assertEqual((401, "unauthorized"), (anonymous.status_code, anonymous.json()["code"]))
+
+        acting = {**service, "X-Admin-Actor": "mkfield", "X-Admin-Actor-Name": "%E6%98%9F%E9%87%8E"}
+        session = self.client.get("/api/v1/admin/session", headers=acting).json()
+        self.assertEqual(("server-hub:mkfield", "星野（server-hub）", "operator", "service"),
+                         (session["subject"], session["name"], session["role"], session["via"]))
+        changed = self.client.patch("/api/v1/admin/users/reader-1",
+                                    json={"status": "disabled", "reason": "在 Server Hub 里停用"}, headers=acting)
+        self.assertEqual(200, changed.status_code, changed.text)
+        [entry] = self.audit("user.disable")
+        self.assertEqual(("server-hub:mkfield", "星野（server-hub）"), (entry["actor_subject"], entry["actor_name"]))
+        # The configured role caps what the platform may do.
+        self.assertEqual(403, self.client.post("/api/v1/admin/releases/1/withdraw", json={"reason": "越权"},
+                                               headers=acting).status_code)
 
     # ---------------------------------------------------------------- lists and errors
 

@@ -22,11 +22,12 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import re
 import secrets
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urlencode
+from urllib.parse import unquote, urlencode
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -44,7 +45,8 @@ class Principal:
     subject: str
     name: str | None
     role: str
-    # "device" (app token), "console" (admin cookie), "token" (ADMIN_API_TOKEN) or "anonymous".
+    # "device" (app token), "console" (admin cookie), "token" (ADMIN_API_TOKEN),
+    # "service" (a trusted platform such as Server Hub acting for its user) or "anonymous".
     via: str = "device"
 
     @property
@@ -61,6 +63,9 @@ ADMIN_SESSION_TTL = timedelta(hours=8)
 ADMIN_HEADER = "x-mkread-admin"
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 SEEN_INTERVAL = timedelta(minutes=5)
+SERVICE_ACTOR_HEADER = "x-admin-actor"
+SERVICE_ACTOR_NAME_HEADER = "x-admin-actor-name"  # percent-encoded UTF-8
+SERVICE_ACTOR = re.compile(r"^[A-Za-z0-9._@:+-]{1,128}$")
 
 
 def _hash(token: str) -> str:
@@ -99,11 +104,26 @@ class Authenticator:
         header = request.headers.get("authorization", "")
         scheme, _, token = header.partition(" ")
         if scheme.lower() == "bearer" and token:
-            return self._bearer_principal(token)
+            service = self._service_principal(token, request)
+            return service or self._bearer_principal(token)
         cookie = request.cookies.get(ADMIN_COOKIE)
         if cookie:
             return self._console_principal(cookie, request)
         return None
+
+    def _service_principal(self, token: str, request: Request) -> Principal | None:
+        """A trusted platform acting for one of its signed-in people; the audit log names that person."""
+        match = next((value for key, value in self.settings.service_tokens.items()
+                      if hmac.compare_digest(token, key)), None)
+        if match is None:
+            return None
+        service, role = match
+        actor = request.headers.get(SERVICE_ACTOR_HEADER, "")
+        if not SERVICE_ACTOR.match(actor):
+            raise HTTPException(401, f"{service} 的请求必须在 X-Admin-Actor 头里注明操作人",
+                                headers={"WWW-Authenticate": "Bearer"})
+        name = unquote(request.headers.get(SERVICE_ACTOR_NAME_HEADER, ""))[:100].strip() or actor
+        return Principal(f"{service}:{actor}", f"{name}（{service}）", role, "service")
 
     def _bearer_principal(self, token: str) -> Principal:
         if self.settings.admin_api_token and hmac.compare_digest(token, self.settings.admin_api_token):

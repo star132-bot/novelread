@@ -27,6 +27,9 @@ class Settings:
     admin_subjects: list[str] = field(default_factory=lambda: _list("ADMIN_SUBJECTS"))
     # Long random token for publishing from scripts or the web admin page.
     admin_api_token: str = field(default_factory=lambda: os.environ.get("ADMIN_API_TOKEN", ""))
+    # Trusted platforms that call the admin API for a signed-in person of theirs (e.g. Server Hub):
+    # "name:role:token" entries, comma separated. Requests must name the person in X-Admin-Actor.
+    admin_service_tokens: list[str] = field(default_factory=lambda: _list("ADMIN_SERVICE_TOKENS"))
     session_days: int = field(default_factory=lambda: int(os.environ.get("SESSION_DAYS", "180")))
     max_upload_bytes: int = field(default_factory=lambda: int(os.environ.get("MAX_UPLOAD_MB", "200")) * 1024 * 1024)
 
@@ -35,6 +38,15 @@ class Settings:
             raise ValueError("READ_ACCESS must be 'login' or 'public'")
         if self.admin_api_token and len(self.admin_api_token) < 32:
             raise ValueError("ADMIN_API_TOKEN must be at least 32 characters")
+        for entry in self.admin_service_tokens:
+            name, role, token = (entry.split(":", 2) + ["", ""])[:3]
+            if not name or role not in {"viewer", "operator", "superadmin"} or len(token) < 32:
+                raise ValueError("ADMIN_SERVICE_TOKENS entries must be name:viewer|operator|superadmin:<32+ char token>")
+
+    @property
+    def service_tokens(self) -> dict[str, tuple[str, str]]:
+        """token → (service name, role)."""
+        return {token: (name, role) for name, role, token in (e.split(":", 2) for e in self.admin_service_tokens)}
 
     @property
     def login_enabled(self) -> bool:

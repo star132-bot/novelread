@@ -40,12 +40,13 @@ App ──HTTPS──► Cloudflare ──tunnel──► 应用服务器
    nano /opt/mkread-library/.env      # 填 OIDC_CLIENT_ID 和 OIDC_CLIENT_SECRET
    cd /opt/mkread-library && docker compose up -d
    ```
-3. **管理员**：用自己的 MKauth 账号在 App 里登录一次，然后把自己的 subject 写进 `ADMIN_SUBJECTS`（或在 MKauth 给账号加 `mkread:admin` 角色）。查 subject：
+3. **第一位管理员**：用自己的 MKauth 账号打开 `https://books.mkauth.sbs/admin/` 登录一次（会提示没有权限，但账号已经建档），然后在应用服务器上授予超级管理员：
    ```bash
-   # 在数据库服务器上
-   sudo -u postgres psql -d mkread_library -c 'select subject, display_name, created_at from device_sessions order by created_at desc limit 5'
-
+   cd /opt/mkread-library
+   docker compose exec -T api python -m app.accounts grant <你的邮箱或 subject> superadmin --reason "首位管理员"
+   docker compose exec -T api python -m app.accounts admins     # 查看所有管理员
    ```
+   之后的管理员直接在管理平台「用户与账号」里分配角色。也可以把 subject 写进 `ADMIN_SUBJECTS`（永远是超级管理员），或在 MKauth 给账号加 `mkread:viewer` / `mkread:operator` / `mkread:admin` 角色。
 
 ## 发布书
 
@@ -56,10 +57,38 @@ python3 tools/mkbook/mkbook.py build 书名.mktxt --previous 书名.mkbook -o �
 
 然后任选一种上传：
 
-- 网页：打开 `https://books.mkauth.sbs/`，填管理令牌（应用服务器 `.env` 里的 `ADMIN_API_TOKEN`），选文件上传。
-- 命令行：`curl -H "Authorization: Bearer <管理令牌>" -F file=@书名.mkbook https://books.mkauth.sbs/api/v1/books`
+- 管理平台：「书籍 → 上传书籍」，选文件并填写原因。
+- 命令行：`curl -H "Authorization: Bearer <管理令牌>" -F file=@书名.mkbook "https://books.mkauth.sbs/api/v1/books?reason=首发"`
 
 同一本书再次上传时 `revision` 必须更大；校验不通过会返回具体原因。
+
+## 管理平台
+
+`https://books.mkauth.sbs/admin/`，用 MKauth 登录（复用书库已有的回调地址，不需要在 MKauth 另外配置）。
+
+| 角色 | 权限 |
+|---|---|
+| 只读管理员 `viewer` | 查看所有页面、导出 CSV |
+| 运营 `operator` | 另外可以上传、下架、恢复书籍；停用、启用用户；吊销设备会话；调整配额 |
+| 超级管理员 `superadmin` | 另外可以分配角色；撤回、恢复 App 版本；设置强制更新 |
+
+有效角色取「平台分配」「MKauth 授予」「`ADMIN_SUBJECTS`」三者中最高的一个。停用账号后，该账号的 App 和管理会话立即失效；所有修改都写入审计日志（操作人、时间、原因、改前改后）。
+
+**管理接口**（`/api/v1/admin/*`，接口文档在 `/admin/api-docs`，只对管理员开放）：
+
+- 认证方式：
+  - 管理平台的 Cookie 会话：HttpOnly，8 小时有效。写请求必须带 `X-MKread-Admin: 1` 头。
+  - App 设备令牌：账号需要有管理角色。
+  - `ADMIN_API_TOKEN`：给脚本用。
+- 列表接口：
+  - 参数：`page`（从 1 开始）、`page_size`（不超过 200）、`sort`（字段名，前加 `-` 表示降序）、`q`，以及各资源自己的筛选参数。
+  - 返回：`{items, page, page_size, total}`。
+  - 加 `format=csv` 可导出，最多 1 万行。
+- 写接口必须带 `reason`。
+- 错误统一返回 `{code, message, details}`。
+- 资源：`overview`、`search`、`users`、`books`（含 `batch`）、`voice-packs`、`releases`、`audit`、`session`。
+
+App 用的数据接口（`/api/v1/catalog`、`/books`、`/voices`、`/app`）不变，和管理接口分开。其他应用（笔记、文件）接入时，按同样的接口规范各自实现管理接口。
 
 ## 音色包
 

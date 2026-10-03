@@ -52,10 +52,12 @@ FROM device_sessions
 ORDER BY subject, last_used_at DESC
 ON CONFLICT (subject) DO NOTHING;
 
--- Browser sessions of the admin console (cookie; token stored hashed).
+-- Browser sessions of the admin console (cookie; token stored hashed). Sessions opened from a
+-- trusted platform (embedded console) carry service, actor_name and role; their subject is
+-- "<service>:<actor>" and has no users row.
 CREATE TABLE IF NOT EXISTS admin_sessions (
     token_hash    TEXT PRIMARY KEY,
-    subject       TEXT NOT NULL REFERENCES users(subject) ON DELETE CASCADE,
+    subject       TEXT NOT NULL,
     ip            TEXT,
     user_agent    TEXT,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -63,6 +65,21 @@ CREATE TABLE IF NOT EXISTS admin_sessions (
     expires_at    TIMESTAMPTZ NOT NULL
 );
 CREATE INDEX IF NOT EXISTS admin_sessions_subject_idx ON admin_sessions (subject);
+ALTER TABLE admin_sessions DROP CONSTRAINT IF EXISTS admin_sessions_subject_fkey;
+ALTER TABLE admin_sessions ADD COLUMN IF NOT EXISTS service TEXT;
+ALTER TABLE admin_sessions ADD COLUMN IF NOT EXISTS actor_name TEXT;
+ALTER TABLE admin_sessions ADD COLUMN IF NOT EXISTS role TEXT;
+
+-- One-time links a trusted platform uses to open the console in an iframe (60 seconds).
+CREATE TABLE IF NOT EXISTS admin_embed_tickets (
+    ticket_hash   TEXT PRIMARY KEY,
+    service       TEXT NOT NULL,
+    subject       TEXT NOT NULL,
+    actor_name    TEXT,
+    role          TEXT NOT NULL,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at    TIMESTAMPTZ NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS admin_audit (
     id             BIGSERIAL PRIMARY KEY,

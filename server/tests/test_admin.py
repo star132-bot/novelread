@@ -66,6 +66,7 @@ class AdminTest(unittest.TestCase):
             admin_subjects=["root-1"],
             admin_api_token="",
             admin_service_tokens=[f"server-hub:operator:{SERVICE_TOKEN}"],
+            admin_embed_origins=["https://hub.example.test"],
         )
         self.app = create_app(settings)
         self.client = TestClient(self.app, follow_redirects=False).__enter__()
@@ -225,6 +226,35 @@ class AdminTest(unittest.TestCase):
         # The configured role caps what the platform may do.
         self.assertEqual(403, self.client.post("/api/v1/admin/releases/1/withdraw", json={"reason": "越权"},
                                                headers=acting).status_code)
+
+    def test_platform_opens_the_console_in_an_iframe_with_a_one_time_link(self):
+        root = self.user("root-1")
+        self.user("reader-1")
+        refused = self.client.post("/api/v1/admin/embed-tickets", json={}, headers=root["console"])
+        self.assertEqual(403, refused.status_code, "only a trusted platform may mint embed links")
+
+        acting = {"Authorization": f"Bearer {SERVICE_TOKEN}", "X-Admin-Actor": "mkfield",
+                  "X-Admin-Actor-Name": "%E6%98%9F%E9%87%8E"}
+        ticket = self.client.post("/api/v1/admin/embed-tickets", json={"theme": "dark", "path": "/books"},
+                                  headers=acting).json()
+        self.assertTrue(ticket["url"].startswith("https://books.example.test/admin/embed?ticket="))
+        link = ticket["url"].replace("https://books.example.test", "")
+        opened = self.client.get(link)
+        self.assertEqual(302, opened.status_code)
+        self.assertEqual("/admin/?embed=1&theme=dark#/books", opened.headers["location"])
+        cookie = {"Cookie": opened.headers["set-cookie"].split(";")[0], **ADMIN}
+        self.assertEqual(400, self.client.get(link).status_code, "links are single use")
+
+        session = self.client.get("/api/v1/admin/session", headers=cookie).json()
+        self.assertEqual(("server-hub:mkfield", "operator", True),
+                         (session["subject"], session["role"], session["embedded"]))
+        changed = self.client.patch("/api/v1/admin/users/reader-1",
+                                    json={"quota_bytes": 2 * 1024 ** 3, "reason": "在嵌入页面里调整"}, headers=cookie)
+        self.assertEqual(200, changed.status_code, changed.text)
+        self.assertEqual("server-hub:mkfield", self.audit("user.quota")[0]["actor_subject"])
+
+        page = self.client.get("/admin/")
+        self.assertIn("frame-ancestors 'self' https://hub.example.test;", page.headers["content-security-policy"])
 
     # ---------------------------------------------------------------- lists and errors
 

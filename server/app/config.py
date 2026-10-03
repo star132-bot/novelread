@@ -30,6 +30,8 @@ class Settings:
     # Trusted platforms that call the admin API for a signed-in person of theirs (e.g. Server Hub):
     # "name:role:token" entries, comma separated. Requests must name the person in X-Admin-Actor.
     admin_service_tokens: list[str] = field(default_factory=lambda: _list("ADMIN_SERVICE_TOKENS"))
+    # Origins allowed to show the admin console in an iframe, e.g. https://hub.mkauth.sbs.
+    admin_embed_origins: list[str] = field(default_factory=lambda: _list("ADMIN_EMBED_ORIGINS"))
     session_days: int = field(default_factory=lambda: int(os.environ.get("SESSION_DAYS", "180")))
     max_upload_bytes: int = field(default_factory=lambda: int(os.environ.get("MAX_UPLOAD_MB", "200")) * 1024 * 1024)
 
@@ -38,6 +40,10 @@ class Settings:
             raise ValueError("READ_ACCESS must be 'login' or 'public'")
         if self.admin_api_token and len(self.admin_api_token) < 32:
             raise ValueError("ADMIN_API_TOKEN must be at least 32 characters")
+        for origin in self.admin_embed_origins:
+            local = origin.startswith(("http://localhost:", "http://127.0.0.1:"))
+            if not (origin.startswith("https://") or local) or any(c in origin for c in " ;'\"*"):
+                raise ValueError("ADMIN_EMBED_ORIGINS entries must be https:// origins (or local http for development)")
         for entry in self.admin_service_tokens:
             name, role, token = (entry.split(":", 2) + ["", ""])[:3]
             if not name or role not in {"viewer", "operator", "superadmin"} or len(token) < 32:

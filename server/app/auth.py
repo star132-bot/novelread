@@ -46,7 +46,8 @@ class Principal:
     name: str | None
     role: str
     # "device" (app token), "console" (admin cookie), "token" (ADMIN_API_TOKEN),
-    # "service" (a trusted platform such as Server Hub acting for its user) or "anonymous".
+    # "service" (a trusted platform such as Server Hub acting for its user), "embedded" (console
+    # opened inside that platform) or "anonymous".
     via: str = "device"
 
     @property
@@ -150,24 +151,56 @@ class Authenticator:
 
     def _console_principal(self, cookie: str, request: Request) -> Principal | None:
         with self.database.connection() as conn:
-            user = conn.execute(
+            session = conn.execute(
                 """
-                SELECT u.*, s.last_used_at AS session_used_at FROM admin_sessions s
-                JOIN users u USING (subject)
+                SELECT s.subject AS session_subject, s.service, s.actor_name, s.role AS session_role,
+                       s.last_used_at AS session_used_at, u.*
+                FROM admin_sessions s LEFT JOIN users u ON u.subject = s.subject
                 WHERE s.token_hash = %s AND s.expires_at > now()
                 """,
                 (_hash(cookie),),
             ).fetchone()
-            if user is None:
+            if session is None or (session["service"] is None and session["status"] is None):
                 return None
-            self._check_active(user)
+            if session["service"] is None:
+                self._check_active(session)
             if request.method not in SAFE_METHODS and request.headers.get(ADMIN_HEADER) != "1":
                 raise HTTPException(403, "请求缺少 X-MKread-Admin 头（防跨站请求）")
-            if user["session_used_at"] < datetime.now(timezone.utc) - SEEN_INTERVAL:
+            if session["session_used_at"] < datetime.now(timezone.utc) - SEEN_INTERVAL:
                 conn.execute("UPDATE admin_sessions SET last_used_at = now() WHERE token_hash = %s", (_hash(cookie),))
-            self._touch(conn, user)
-        return Principal(user["subject"], user["display_name"],
-                         effective_role(user, self.settings.admin_subjects), "console")
+            if session["service"] is not None:
+                # Opened from a trusted platform: that platform vouched for the person and the role.
+                return Principal(session["session_subject"], session["actor_name"], session["session_role"], "embedded")
+            self._touch(conn, session)
+        return Principal(session["subject"], session["display_name"],
+                         effective_role(session, self.settings.admin_subjects), "console")
+
+    def create_console_session(self, conn, request: Request, subject: str, service: str | None = None,
+                               actor_name: str | None = None, role: str | None = None) -> str:
+        token = secrets.token_urlsafe(32)
+        conn.execute(
+            "INSERT INTO admin_sessions (token_hash, subject, service, actor_name, role, ip, user_agent, expires_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, now() + %s)",
+            (
+                _hash(token), subject, service, actor_name, role,
+                request.headers.get("cf-connecting-ip") or (request.client.host if request.client else None),
+                (request.headers.get("user-agent") or "")[:200],
+                ADMIN_SESSION_TTL,
+            ),
+        )
+        conn.execute("DELETE FROM admin_sessions WHERE expires_at < now()")
+        return token
+
+    def set_console_cookie(self, response: Response, token: str) -> None:
+        response.set_cookie(
+            ADMIN_COOKIE,
+            token,
+            max_age=int(ADMIN_SESSION_TTL.total_seconds()),
+            httponly=True,
+            secure=self.settings.public_base_url.startswith("https://"),
+            samesite="lax",
+            path="/",
+        )
 
     @staticmethod
     def _check_active(user: dict) -> None:
@@ -352,29 +385,9 @@ class Authenticator:
                     return back_to_console("account_disabled")
                 if effective_role(user, settings.admin_subjects) == "none":
                     return back_to_console("no_role")
-                session_token = secrets.token_urlsafe(32)
-                conn.execute(
-                    "INSERT INTO admin_sessions (token_hash, subject, ip, user_agent, expires_at) "
-                    "VALUES (%s, %s, %s, %s, now() + %s)",
-                    (
-                        _hash(session_token),
-                        user["subject"],
-                        request.headers.get("cf-connecting-ip") or (request.client.host if request.client else None),
-                        (request.headers.get("user-agent") or "")[:200],
-                        ADMIN_SESSION_TTL,
-                    ),
-                )
-                conn.execute("DELETE FROM admin_sessions WHERE expires_at < now()")
+                session_token = self.create_console_session(conn, request, user["subject"])
             response = RedirectResponse(_safe_return_to(pending["return_to"]), status_code=302)
-            response.set_cookie(
-                ADMIN_COOKIE,
-                session_token,
-                max_age=int(ADMIN_SESSION_TTL.total_seconds()),
-                httponly=True,
-                secure=settings.public_base_url.startswith("https://"),
-                samesite="lax",
-                path="/",
-            )
+            self.set_console_cookie(response, session_token)
             return response
 
         @router.post("/admin/logout", status_code=204)

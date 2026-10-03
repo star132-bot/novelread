@@ -12,6 +12,22 @@
   const saveTheme = (theme) => { try { localStorage.setItem(THEME_KEY, theme); } catch { /* private mode */ } applyTheme(theme); };
   applyTheme(storedTheme());
 
+  // Embedded in a trusted platform (Server Hub): theme comes from the host page, no own login/logout.
+  const EMBED_KEY = "mkread-admin-embedded";
+  const EMBED_THEME_KEY = "mkread-admin-embed-theme";
+  const session_ = (key, value) => {
+    try { if (value === undefined) return sessionStorage.getItem(key); sessionStorage.setItem(key, value); } catch { /* storage blocked */ }
+    return null;
+  };
+  const startParams = new URLSearchParams(location.search);
+  let embedded = session_(EMBED_KEY) === "1";
+  if (startParams.get("embed") === "1") {
+    embedded = true;
+    session_(EMBED_KEY, "1");
+    if (startParams.get("theme")) session_(EMBED_THEME_KEY, startParams.get("theme"));
+  }
+  if (embedded) applyTheme(session_(EMBED_THEME_KEY) || "system");
+
   // ------------------------------------------------------------------ DOM helpers
   const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -1057,7 +1073,7 @@
       h("div", { class: "grid-2" },
         h("div", { class: "card panel" }, h("div", { class: "panel-head" }, h("h2", {}, "当前账号")),
           facts([["名称", session.name || "—"], ["Subject", h("span", { class: "mono" }, session.subject)],
-            ["角色", ROLE_NAMES[session.role]], ["登录方式", { console: "MKauth 单点登录", device: "App 设备令牌", token: "管理脚本令牌", service: "受信任平台代理（如 Server Hub）" }[session.via] || session.via]]),
+            ["角色", ROLE_NAMES[session.role]], ["登录方式", { console: "MKauth 单点登录", device: "App 设备令牌", token: "管理脚本令牌", service: "受信任平台代理（如 Server Hub）", embedded: "嵌入在 Server Hub 中" }[session.via] || session.via]]),
           h("div", { class: "section" }, h("h3", {}, "拥有的权限"),
             h("ul", { class: "timeline" }, session.permissions.map((p) => h("li", {}, h("i", { class: "green" }), h("div", {}, permissionNames[p] || p)))))),
         h("div", { class: "stack" },
@@ -1177,9 +1193,11 @@
 
   function renderShell() {
     const session = state.session;
+    embedded = embedded || session.embedded;
+    const groups = embedded ? NAV.filter((group) => group.title !== "其他应用") : NAV;
     sidebar = h("nav", { class: "sidebar", "aria-label": "主导航" },
       h("div", { class: "brand" }, h("span", { class: "brand-mark" }, "MK"), h("div", {}, h("strong", {}, "MKREAD"), h("small", {}, "数据管理平台"))),
-      NAV.map((group) => h("div", { class: "nav-group" }, h("p", {}, group.title),
+      groups.map((group) => h("div", { class: "nav-group" }, h("p", {}, group.title),
         group.items.map((item) => h("a", { class: "nav-link", href: `#/${item.key}`, "data-key": item.key, onClick: () => sidebar.classList.remove("open") },
           icon(item.icon), item.label, item.tag ? h("span", { class: "tag" }, item.tag) : null)))),
       h("div", { class: "sidebar-foot" }, "MKread Cloud · 管理接口 v1"));
@@ -1198,11 +1216,11 @@
       h("button", { class: "icon-btn menu-btn", type: "button", "aria-label": "打开导航", onClick: () => sidebar.classList.toggle("open") }, icon("menu")),
       h("button", { class: "search-trigger", type: "button", onClick: openPalette, "aria-label": "全局搜索" }, icon("search"),
         h("span", {}, "搜索用户、书名、ID…"), h("kbd", {}, "⌘K")),
-      h("div", { class: "topbar-right" }, themeButton,
+      h("div", { class: "topbar-right" }, embedded ? null : themeButton,
         h("div", { class: "account" }, h("div", { class: "account-text" }, h("strong", { class: "ellipsis" }, session.name || session.subject),
-          h("small", {}, ROLE_NAMES[session.role])), h("span", { class: "avatar" }, initials(session.name)), logout)));
+          h("small", {}, ROLE_NAMES[session.role])), h("span", { class: "avatar" }, initials(session.name)), embedded ? null : logout)));
     content = h("div", { class: "content", id: "main", tabindex: "-1" });
-    fill(root(), h("div", { class: "shell" }, sidebar, h("main", {}, topbar, content)));
+    fill(root(), h("div", { class: `shell${embedded ? " embedded" : ""}` }, sidebar, h("main", {}, topbar, content)));
     current = { key: null, instance: null };
     route();
   }
@@ -1252,6 +1270,12 @@
     paletteOpen = false;
     content = null;
     document.title = "登录 · MKread 数据管理";
+    if (embedded) {
+      fill(root(), h("div", { class: "login" }, h("main", { class: "login-card" },
+        h("span", { class: "brand-mark" }, "MK"), h("h1", {}, "会话已结束"),
+        h("p", {}, "MKread 数据页面的会话已过期或已退出。请在 Server Hub 里重新打开 MKread 页面。"))));
+      return;
+    }
     const target = `/api/v1/auth/admin/start${query({ return_to: `/admin/${location.hash || "#/overview"}` })}`;
     const message = LOGIN_ERRORS[reason] || (reason ? `登录失败：${reason}` : null);
     fill(root(), h("div", { class: "login" }, h("main", { class: "login-card" },
@@ -1266,7 +1290,7 @@
   async function boot() {
     const params = new URLSearchParams(location.search);
     const loginError = params.get("login_error");
-    if (loginError) history.replaceState(null, "", `/admin/${location.hash}`);
+    if (location.search) history.replaceState(null, "", `/admin/${location.hash}`);
     fill(root(), h("div", { class: "login" }, h("div", { class: "login-card" }, skeletonBlock("w60"))));
     try {
       state.session = await api("/session");

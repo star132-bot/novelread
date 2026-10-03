@@ -14,17 +14,20 @@ from __future__ import annotations
 
 import csv
 import io
+import re
+import secrets
 import shutil
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, FastAPI, Form, HTTPException, Query, Request, UploadFile
 from fastapi.exception_handlers import http_exception_handler, request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.docs import get_swagger_ui_html
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -38,7 +41,7 @@ from .accounts import (
     record_audit,
     role_at_least,
 )
-from .auth import Authenticator, Principal
+from .auth import Authenticator, Principal, _hash
 from .books import BookStore
 
 PREFIX = "/api/v1/admin"
@@ -51,15 +54,24 @@ ERROR_CODES = {
     409: "conflict", 413: "too_large", 422: "invalid_request", 502: "upstream_error", 503: "unavailable",
 }
 
-UI_HEADERS = {
-    "Cache-Control": "no-cache",
-    "Content-Security-Policy": (
-        "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; "
-        "frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
-    ),
-    "X-Content-Type-Options": "nosniff",
-    "Referrer-Policy": "same-origin",
-}
+EMBED_TICKET_TTL = timedelta(seconds=60)
+EMBED_PATH = re.compile(r"^/[a-z][a-z/-]{0,40}$")
+EMBED_EXPIRED = """<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>链接已失效</title>
+<body>
+<p>这个链接已经用过或已过期，请在 Server Hub 里重新打开 MKread 页面。</p></body></html>"""
+
+
+def ui_headers(embed_origins: list[str]) -> dict[str, str]:
+    ancestors = " ".join(["'self'", *embed_origins]) if embed_origins else "'none'"
+    return {
+        "Cache-Control": "no-cache",
+        "Content-Security-Policy": (
+            "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; "
+            f"frame-ancestors {ancestors}; base-uri 'none'; form-action 'self'"
+        ),
+        "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "same-origin",
+    }
 
 
 class ApiError(HTTPException):
@@ -90,6 +102,11 @@ class UserPatch(Reason):
 class BookBatch(Reason):
     action: Literal["unpublish", "restore"]
     ids: list[str] = Field(min_length=1, max_length=100)
+
+
+class EmbedTicket(Strict):
+    theme: Literal["system", "dark", "light"] = "system"
+    path: str = Field("/overview", pattern=r"^/[a-z][a-z/-]{0,40}$", description="打开后显示的页面，如 /books")
 
 
 class ReleasePatch(Reason):
@@ -196,8 +213,28 @@ def install(app: FastAPI, settings, database, auth: Authenticator, books: BookSt
             "role_name": ROLE_NAMES[principal.role],
             "permissions": PERMISSIONS[principal.role],
             "via": principal.via,
+            "embedded": principal.via == "embedded",
             "login_enabled": settings.login_enabled,
         }
+
+    @api.post("/embed-tickets", summary="（受信任平台）创建一次性链接，在 iframe 里打开管理平台")
+    def embed_ticket(body: EmbedTicket, principal: Principal = Depends(viewer)) -> dict:
+        if principal.via != "service":
+            raise ApiError(403, "forbidden", "只有受信任平台（服务令牌 + X-Admin-Actor）可以创建嵌入链接")
+        if not settings.admin_embed_origins:
+            raise ApiError(503, "embed_disabled", "服务器没有配置 ADMIN_EMBED_ORIGINS，不能嵌入")
+        ticket = secrets.token_urlsafe(32)
+        with database.connection() as conn:
+            conn.execute("DELETE FROM admin_embed_tickets WHERE expires_at < now()")
+            conn.execute(
+                "INSERT INTO admin_embed_tickets (ticket_hash, service, subject, actor_name, role, expires_at) "
+                "VALUES (%s, %s, %s, %s, %s, now() + %s)",
+                (_hash(ticket), principal.subject.split(":", 1)[0], principal.subject, principal.name,
+                 principal.role, EMBED_TICKET_TTL),
+            )
+        query = urlencode({"ticket": ticket, "theme": body.theme, "path": body.path})
+        return {"url": f"{settings.public_base_url}/admin/embed?{query}",
+                "expires_in": int(EMBED_TICKET_TTL.total_seconds())}
 
     @api.get("/overview", summary="概览：用户、书籍、存储、版本、健康状态")
     def overview(_principal: Principal = Depends(viewer)) -> dict:
@@ -705,9 +742,28 @@ def install(app: FastAPI, settings, database, auth: Authenticator, books: BookSt
     def console_redirect() -> RedirectResponse:
         return RedirectResponse("/admin/", status_code=308)
 
+    headers = ui_headers(settings.admin_embed_origins)
+
     @app.get("/admin/", include_in_schema=False)
     def console() -> FileResponse:
-        return FileResponse(UI_DIR / "index.html", media_type="text/html; charset=utf-8", headers=UI_HEADERS)
+        return FileResponse(UI_DIR / "index.html", media_type="text/html; charset=utf-8", headers=headers)
+
+    @app.get("/admin/embed", include_in_schema=False)
+    def embed(request: Request, ticket: str = "", theme: str = "system", path: str = "/overview"):
+        with database.connection() as conn, conn.transaction():
+            row = conn.execute(
+                "DELETE FROM admin_embed_tickets WHERE ticket_hash = %s AND expires_at > now() RETURNING *",
+                (_hash(ticket),),
+            ).fetchone()
+            if row is None:
+                return HTMLResponse(EMBED_EXPIRED, status_code=400, headers=headers)
+            token = auth.create_console_session(conn, request, row["subject"], service=row["service"],
+                                                actor_name=row["actor_name"], role=row["role"])
+        theme = theme if theme in {"system", "dark", "light"} else "system"
+        path = path if EMBED_PATH.match(path) else "/overview"
+        response = RedirectResponse(f"/admin/?{urlencode({'embed': '1', 'theme': theme})}#{path}", status_code=302)
+        auth.set_console_cookie(response, token)
+        return response
 
     @app.get("/admin/api-docs", include_in_schema=False)
     def api_docs(request: Request):

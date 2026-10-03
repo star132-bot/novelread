@@ -42,4 +42,9 @@ url="${mirror}https://github.com/$owner_repo/releases/download/$tag/$(basename "
 ssh "$server" "cd /opt/mkread-library && docker compose exec -T api python -m app.releases publish \
   --url '$url' --version-code $version_code --version-name '$version_name' --sha256 $sha \
   --notes $(printf %q "$notes")"
+# Copy the APK to the mainland download mirror when one is configured (see docs/cloud-library.md).
+# shellcheck disable=SC2029
+if ssh "$server" "grep -q '^DOWNLOAD_MIRROR_URL=https' /opt/mkread-library/.env"; then
+  ssh "$server" /opt/mkread-library/sync-download-mirror.sh || echo "Mirror sync failed; downloads fall back to Cloudflare" >&2
+fi
 echo "Published $version_name ($version_code)"

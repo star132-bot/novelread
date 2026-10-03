@@ -105,7 +105,18 @@ cd /opt/mkread-library/voice-build        # 含 scripts/ 和 speech-assets.lock.
 MKREAD_ASSET_MIRROR=https://ghfast.top/ ./scripts/fetch-speech-assets.sh
 cp .local-assets/voice-packs/*.zip /srv/mkread-library/incoming/ && chown 10001:10001 /srv/mkread-library/incoming/*.zip
 cd /opt/mkread-library && docker compose exec -T api sh -c "python -m app.voices publish /data/incoming/*.zip"
+/opt/mkread-library/sync-download-mirror.sh   # 上传到国内下载镜像（见下节）
 ```
+
+## 国内下载镜像（阿里云 OSS）
+
+Cloudflare 在国内很慢（实测约 85 KB/s），所以 APK 和音色包另存一份在阿里云 OSS（上海）。`/api/v1/voices` 和 `/api/v1/app/latest` 先对 OSS 发一次 HEAD，对象存在且大小一致就下发 OSS 地址，否则仍给 Cloudflare 地址；App 两种地址都校验大小和 SHA-256，App 端无需改动。
+
+- OSS 对象名与服务器文件名一致：`app/<mkread-版本-sha前16位>.apk`、`voices/<id>-r<revision>-<sha前16位>.zip`，内容永不变化。
+- 存储桶：华东 2（上海），读写权限「公共读」，关闭「阻止公共访问」。用 OSS 默认域名，不需要备案。
+- 上传用一个只能写这个桶的 RAM 子账号密钥，在应用服务器上用 `ossutil config` 录入（`~/.ossutilconfig`），不进仓库，不进 `.env`。
+- `.env` 里设 `DOWNLOAD_MIRROR_URL=https://<bucket>.oss-cn-shanghai.aliyuncs.com`，重启 api 生效。
+- 同步：`/opt/mkread-library/sync-download-mirror.sh`（仓库里是 `server/deploy/sync-download-mirror.sh`），走内网上传，已存在的跳过；`scripts/publish-release.sh` 发版后会自动执行。
 
 本地开发想把所有音色打进 APK：`./gradlew :app:assembleDebug -Pmkread.bundleAllVoices=true`。
 

@@ -22,6 +22,8 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 
+from .mirror import DownloadMirror, apk_key
+
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 VERSION_NAME = re.compile(r"^[0-9A-Za-z.+-]{1,32}$")
 FILE_NAME = re.compile(r"^mkread-([0-9A-Za-z.+-]{1,32})-(\d{1,9})-([0-9a-f]{16})$")
@@ -50,7 +52,7 @@ def file_name(row: dict) -> str:
     return f"mkread-{row['version_name']}-{row['version_code']}-{row['apk_sha256'][:16]}"
 
 
-def router(database, data_dir: Path) -> APIRouter:
+def router(database, data_dir: Path, mirror: DownloadMirror | None = None) -> APIRouter:
     api = APIRouter(prefix="/api/v1/app")
 
     @api.get("/latest")
@@ -62,13 +64,14 @@ def router(database, data_dir: Path) -> APIRouter:
         if row is None:
             return {"available": False}
         base = str(request.base_url).rstrip("/")
+        mirrored = mirror.url_for(apk_key(file_name(row)), row["apk_size"]) if mirror else None
         return {
             "available": row["version_code"] > current,
             "versionCode": row["version_code"],
             "versionName": row["version_name"],
             "notes": row["notes"],
             # Immutable .apk path: Cloudflare caches it and a URL never changes content.
-            "apkUrl": f"{base}/api/v1/app/files/{file_name(row)}.apk",
+            "apkUrl": mirrored or f"{base}/api/v1/app/files/{file_name(row)}.apk",
             "apkSize": row["apk_size"],
             "apkSha256": row["apk_sha256"],
             "mandatory": current < row["min_supported"],

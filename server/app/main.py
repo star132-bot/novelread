@@ -21,6 +21,7 @@ from .auth import Authenticator, Principal
 from .books import API, BookStore, book_json
 from .config import Settings
 from .db import Database
+from .mirror import DownloadMirror
 
 SCRIPT_REASON = "（接口调用未填写原因）"
 
@@ -45,8 +46,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.state.authenticator = auth
     app.include_router(auth.router())
-    app.include_router(voices.router(database, settings.data_dir))
-    app.include_router(releases.router(database, settings.data_dir))
+    mirror = DownloadMirror(settings.download_mirror_url)
+    app.include_router(voices.router(database, settings.data_dir, mirror))
+    app.include_router(releases.router(database, settings.data_dir, mirror))
     admin_api.install(app, settings, database, auth, books)
 
     def reader(request: Request) -> Principal:

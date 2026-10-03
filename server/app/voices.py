@@ -21,6 +21,8 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 
+from .mirror import DownloadMirror, voice_key
+
 PACK_ID = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 PACKAGE_NAME = re.compile(r"^([a-z0-9][a-z0-9-]{1,40})-r(\d+)-([0-9a-f]{16})$")
@@ -134,16 +136,21 @@ def publish(conn, data_dir: Path, source: Path) -> dict:
     return row
 
 
-def router(database, data_dir: Path) -> APIRouter:
+def file_name(row: dict) -> str:
+    return f"{row['id']}-r{row['revision']}-{row['package_sha256'][:16]}"
+
+
+def router(database, data_dir: Path, mirror: DownloadMirror | None = None) -> APIRouter:
     api = APIRouter(prefix="/api/v1/voices")
 
     def as_json(row: dict, request: Request) -> dict:
         base = str(request.base_url).rstrip("/")
+        mirrored = mirror.url_for(voice_key(file_name(row)), row["package_size"]) if mirror else None
         return {
             "id": row["id"],
             "revision": row["revision"],
             # A .zip path with revision and hash: Cloudflare caches it, and it never changes.
-            "packageUrl": f"{base}/api/v1/voices/files/{row['id']}-r{row['revision']}-{row['package_sha256'][:16]}.zip",
+            "packageUrl": mirrored or f"{base}/api/v1/voices/files/{file_name(row)}.zip",
             "packageSize": row["package_size"],
             "packageSha256": row["package_sha256"],
             "unpackedSize": row["unpacked_size"],

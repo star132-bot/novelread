@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "overrides": [
+    {
+      "source": "https://",
+      "replacement": "H T T P S，",
+      "match": "literal"
+    },
+    {
+      "source": "http://",
+      "replacement": "H T T P，",
+      "match": "literal"
+    },
+    {
+      "source": "ftp://",
+      "replacement": "F T P，",
+      "match": "literal"
+    },
+    {
+      "source": "://",
+      "replacement": "，",
+      "match": "literal"
+    },
+    {
+      "source": "Wi-Fi",
+      "replacement": "Wi Fi",
+      "match": "whole-token"
+    },
+    {
+      "source": "CPU",
+      "replacement": "C P U",
+      "match": "whole-token"
+    },
+    {
+      "source": "GPU",
+      "replacement": "G P U",
+      "match": "whole-token"
+    },
+    {
+      "source": "AI",
+      "replacement": "A I",
+      "match": "whole-token"
+    }
+  ]
+}

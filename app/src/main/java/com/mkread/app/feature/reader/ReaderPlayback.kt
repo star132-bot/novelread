@@ -1,0 +1,101 @@
+package com.mkread.app.feature.reader
+
+import androidx.media3.common.Player
+import com.mkread.app.playback.SentenceId
+import com.mkread.app.speech.VoiceCatalog
+import com.mkread.app.speech.VoiceOption
+import com.mkread.app.speech.VoicePackStatus
+import kotlinx.coroutines.flow.StateFlow
+
+enum class ReaderPlaybackStatus {
+    IDLE,
+    PREPARING,
+    PLAYING,
+    PAUSED,
+    FAILED,
+}
+
+data class ReaderPlaybackUiState(
+    val status: ReaderPlaybackStatus = ReaderPlaybackStatus.IDLE,
+    val activeSentence: SentenceId? = null,
+    val speed: Float = 1f,
+    val emotionEnabled: Boolean = true,
+    val message: String? = null,
+    val voiceId: String = VoiceCatalog.DEFAULT_VOICE_ID,
+    val voiceName: String = VoiceCatalog.matcha.displayName,
+    val cloneVoices: List<VoiceOption> = emptyList(),
+    /** Download state per voice model id; bundled or installed models report Installed. */
+    val voicePacks: Map<String, VoicePackStatus> = emptyMap(),
+) {
+    val isPlaying: Boolean
+        get() = status == ReaderPlaybackStatus.PLAYING
+
+    val isPreparing: Boolean
+        get() = status == ReaderPlaybackStatus.PREPARING
+}
+
+sealed interface ReaderPlaybackAction {
+    data object Toggle : ReaderPlaybackAction
+    data object Previous : ReaderPlaybackAction
+    data object Next : ReaderPlaybackAction
+    data object Replay : ReaderPlaybackAction
+    data class SetSpeed(val value: Float) : ReaderPlaybackAction
+    data class SetEmotionEnabled(val enabled: Boolean) : ReaderPlaybackAction
+    data class SetVoice(val voiceId: String) : ReaderPlaybackAction
+    data class DownloadVoicePack(val modelId: String) : ReaderPlaybackAction
+    data object RefreshVoicePacks : ReaderPlaybackAction
+}
+
+interface ReaderNarrationController {
+    val state: StateFlow<ReaderPlaybackUiState>
+
+    fun start(reader: ReaderUiState.Loaded, from: SentenceRange)
+
+    fun play()
+
+    fun pause()
+
+    fun previous()
+
+    fun next()
+
+    fun replay()
+
+    fun setSpeed(value: Float)
+
+    fun setEmotionEnabled(enabled: Boolean)
+
+    fun setVoice(voiceId: String)
+
+    fun downloadVoicePack(modelId: String)
+
+    fun refreshVoicePacks()
+}
+
+internal fun Player.resetForNarrationReplacement() {
+    pause()
+    clearMediaItems()
+}
+
+internal data class NarrationQueueRebuildPlan(
+    val resumeAfter: SentenceId,
+    val removeFromIndex: Int,
+)
+
+internal fun planEmotionQueueRebuild(
+    expectedBookId: String,
+    currentSentence: SentenceId?,
+    currentIndex: Int,
+    mediaItemCount: Int,
+): NarrationQueueRebuildPlan? {
+    if (
+        currentSentence?.bookId != expectedBookId ||
+        currentIndex !in 0 until mediaItemCount
+    ) {
+        return null
+    }
+    return NarrationQueueRebuildPlan(
+        resumeAfter = currentSentence,
+        removeFromIndex = currentIndex + 1,
+    )
+}

@@ -1,9 +1,20 @@
 # Android and Gradle
 .gradle/
+.kotlin/
 .idea/
 local.properties
+.local-assets/
+.local-tools/
+app/libs/*.aar
+app/build/
+build/
 **/build/
 *.iml
+*.hprof
+hs_err_pid*.log
+replay_pid*.log
+__pycache__/
+*.py[cod]
 
 # Local Android tooling
 .android-sdk/
@@ -15,7 +26,16 @@ local.properties
 .worktrees/
 captures/
 output/
+artifacts/
 
 # OS files
 Thumbs.db
 .DS_Store
+
+# Private handoff notes (server inventory, credentials locations)
+docs/private/
+# Stray copy created when the session folder moved
+/novelread/
+
+# Release artifacts
+dist/

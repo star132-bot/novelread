@@ -1,0 +1,31 @@
+# Local development: API + PostgreSQL on this machine.
+#   docker compose -f server/docker-compose.dev.yml up --build
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: mkread
+      POSTGRES_USER: mkread
+      POSTGRES_PASSWORD: mkread-dev
+    volumes: [dbdata:/var/lib/postgresql/data]
+    ports: ["127.0.0.1:55432:5432"]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "mkread"]
+      interval: 2s
+      retries: 30
+  api:
+    build: { context: .., dockerfile: server/Dockerfile }
+    depends_on: { db: { condition: service_healthy } }
+    environment:
+      DATABASE_URL: postgresql://mkread:mkread-dev@db:5432/mkread
+      OIDC_ISSUER: ${OIDC_ISSUER:-https://auth.mkauth.sbs}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      READ_ACCESS: ${READ_ACCESS:-login}
+      ADMIN_API_TOKEN: ${ADMIN_API_TOKEN:?set ADMIN_API_TOKEN (32+ chars)}
+    volumes: [books:/data]
+    ports: ["8090:8000"]
+volumes:
+  dbdata:
+  books:

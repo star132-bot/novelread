@@ -1,0 +1,165 @@
+plugins {
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.ksp)
+    alias(libs.plugins.androidx.room)
+}
+
+android {
+    namespace = "com.mkread.app"
+    compileSdk = 35
+
+    defaultConfig {
+        applicationId = "com.mkread.app"
+        minSdk = 29
+        targetSdk = 35
+        // Overridable for release scripts and update tests: -Pmkread.versionCode=… -Pmkread.versionName=…
+        versionCode = providers.gradleProperty("mkread.versionCode").map(String::toInt).getOrElse(3)
+        versionName = providers.gradleProperty("mkread.versionName").getOrElse("0.3.0")
+
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        vectorDrawables.useSupportLibrary = true
+
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
+
+        // Default cloud library server; can be changed in the app's 云端书库 screen.
+        buildConfigField(
+            "String",
+            "CLOUD_SERVER_URL",
+            "\"${providers.gradleProperty("mkread.cloudServerUrl").getOrElse("https://books.mkauth.sbs")}\"",
+        )
+    }
+
+    // Release signing comes from ~/.gradle/gradle.properties (never from the repository):
+    //   mkread.signing.storeFile, mkread.signing.storePassword, mkread.signing.keyAlias, mkread.signing.keyPassword
+    val releaseKeystore = providers.gradleProperty("mkread.signing.storeFile").orNull
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = file(releaseKeystore)
+                storePassword = providers.gradleProperty("mkread.signing.storePassword").get()
+                keyAlias = providers.gradleProperty("mkread.signing.keyAlias").get()
+                keyPassword = providers.gradleProperty("mkread.signing.keyPassword").get()
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            if (releaseKeystore != null) signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = false
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        buildConfig = true
+        compose = true
+    }
+
+    sourceSets {
+        // Every APK ships the Matcha voice; other voices are downloaded from the cloud library.
+        // Pass -Pmkread.bundleAllVoices=true to bundle all of them for offline development.
+        val bundleAllVoices = providers.gradleProperty("mkread.bundleAllVoices")
+            .map(String::toBoolean)
+            .getOrElse(false)
+        val speechAssets = rootProject.file(
+            if (bundleAllVoices) ".local-assets/debug-assets" else ".local-assets/bundled-assets",
+        )
+        if (speechAssets.isDirectory) {
+            getByName("main").assets.srcDir(speechAssets)
+        }
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
+    }
+
+    packaging {
+        resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+    }
+
+    androidResources {
+        // Speech models barely compress; storing them uncompressed makes the first-run copy faster.
+        noCompress += listOf("onnx", "bin", "fst")
+    }
+}
+
+room {
+    schemaDirectory("$projectDir/schemas")
+}
+
+kotlin {
+    jvmToolchain(17)
+}
+
+dependencies {
+    implementation(files("libs/sherpa-onnx-1.13.4.aar"))
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.lifecycle.viewmodel.ktx)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.lifecycle.viewmodel.savedstate)
+    implementation(libs.androidx.navigation.compose)
+    implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.androidx.datastore.preferences)
+    implementation(libs.androidx.media3.common)
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.session)
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.jsoup)
+    implementation(libs.androidx.browser)
+
+    ksp(libs.androidx.room.compiler)
+
+    implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.androidx.compose.ui)
+    implementation(libs.androidx.compose.ui.tooling.preview)
+    implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.material.icons.extended)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
+
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.rules)
+    androidTestImplementation(libs.androidx.test.espresso.core)
+    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+    androidTestImplementation(libs.androidx.room.testing)
+    androidTestImplementation(libs.androidx.work.testing)
+    androidTestImplementation(libs.androidx.media3.test.utils)
+
+    debugImplementation(libs.androidx.compose.ui.tooling)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
+}
+
+tasks.register<Exec>("offlineContract") {
+    group = "verification"
+    description = "Verifies that the merged debug APK has no network permissions."
+    dependsOn("assembleDebug")
+    workingDir(rootProject.projectDir)
+    commandLine(
+        "powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        rootProject.file("scripts/check-offline-manifest.ps1").absolutePath,
+    )
+}

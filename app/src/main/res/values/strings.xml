@@ -58,6 +58,7 @@
     <string name="reader_pause">暂停朗读</string>
     <string name="reader_narration_preparing">正在生成离线语音</string>
     <string name="reader_night_mode">夜间模式</string>
+    <string name="reader_display_settings">字号与主题</string>
     <string name="reader_night_mode_on">关闭夜间模式</string>
     <string name="voice_library">音色库</string>
     <string name="voice_import_action">导入音色</string>

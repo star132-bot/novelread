@@ -31,8 +31,12 @@ class ThemeModeController(
         }
     }
 
-    fun toggleNightMode() {
-        set(if (mode.value == ThemeMode.DARK) ThemeMode.SYSTEM else ThemeMode.DARK)
+    /**
+     * Flips what the user currently sees. Toggling between DARK and SYSTEM did nothing on a phone
+     * whose system theme is already dark, so the result is always an explicit light or dark mode.
+     */
+    fun toggleNightMode(currentlyDark: Boolean) {
+        set(if (currentlyDark) ThemeMode.LIGHT else ThemeMode.DARK)
     }
 
     private companion object {

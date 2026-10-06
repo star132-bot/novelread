@@ -47,8 +47,10 @@ class MainActivity : ComponentActivity() {
             ) {
                 MkreadNavHost(
                     container = container,
-                    nightModeEnabled = themeMode == ThemeMode.DARK,
-                    onToggleNightMode = container.themeModeController::toggleNightMode,
+                    nightModeEnabled = darkTheme,
+                    onToggleNightMode = { container.themeModeController.toggleNightMode(darkTheme) },
+                    themeMode = themeMode,
+                    onThemeModeChange = container.themeModeController::set,
                 )
                 UpdateDialog(container.appUpdater)
             }

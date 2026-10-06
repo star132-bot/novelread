@@ -28,8 +28,10 @@ import com.mkread.app.feature.reader.OfflineReaderNarrationController
 import com.mkread.app.feature.reader.PaginationDerivedDataInvalidator
 import com.mkread.app.feature.reader.PaginationSpec
 import com.mkread.app.feature.reader.ReaderBookSource
+import com.mkread.app.feature.reader.ReaderDisplaySettingsStore
 import com.mkread.app.feature.reader.RoomChapterEditMetadata
 import com.mkread.app.feature.reader.RoomReadingPositionRepository
+import com.mkread.app.feature.reader.withDisplaySettings
 import com.mkread.app.playback.DataStorePlaybackCheckpointStore
 import com.mkread.app.playback.MKREAD_PREFERENCES_FILE_NAME
 import com.mkread.app.speech.NarrationVoiceSettings
@@ -50,6 +52,7 @@ class AppContainer(
     val preferencesDataStore = context.mkreadPreferencesDataStore
     val playbackCheckpointStore = DataStorePlaybackCheckpointStore(preferencesDataStore)
     val themeModeController = ThemeModeController(preferencesDataStore, applicationScope)
+    val readerDisplaySettings = ReaderDisplaySettingsStore(preferencesDataStore, applicationScope)
 
     val database: MkreadDatabase = Room.databaseBuilder(
         context,
@@ -126,7 +129,8 @@ class AppContainer(
         metadata = RoomChapterEditMetadata(database),
         invalidator = PaginationDerivedDataInvalidator(paginationCache),
     )
-    val initialReaderSpec: PaginationSpec = context.resources.displayMetrics.let { metrics ->
+    /** Starts the reader with the saved typography so the first pagination is already final. */
+    val initialReaderSpec: PaginationSpec get() = context.resources.displayMetrics.let { metrics ->
         PaginationSpec(
             widthPx = metrics.widthPixels.coerceAtLeast(1),
             heightPx = (metrics.heightPixels * 3 / 4).coerceAtLeast(1),
@@ -136,7 +140,7 @@ class AppContainer(
             lineSpacingMultiplier = 1.4f,
             horizontalMarginPx = (16f * metrics.density).toInt().coerceAtLeast(0),
             fontScale = context.resources.configuration.fontScale,
-        )
+        ).withDisplaySettings(readerDisplaySettings.settings.value, metrics.density)
     }
     fun reconcileLibraryOnStartup() {
         applicationScope.launch {

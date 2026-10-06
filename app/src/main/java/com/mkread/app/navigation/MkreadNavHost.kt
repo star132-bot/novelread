@@ -2,6 +2,8 @@ package com.mkread.app.navigation
 
 import android.net.Uri
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -21,6 +23,7 @@ import com.mkread.app.feature.reader.ReaderRoute
 import com.mkread.app.feature.reader.ReaderViewModel
 import com.mkread.app.feature.reader.ReaderViewModelFactory
 import com.mkread.app.speech.SpikeScreen
+import com.mkread.app.ui.theme.ThemeMode
 
 @Composable
 fun MkreadNavHost(
@@ -28,6 +31,8 @@ fun MkreadNavHost(
     onOpenBook: ((String) -> Unit)? = null,
     nightModeEnabled: Boolean = false,
     onToggleNightMode: (() -> Unit)? = null,
+    themeMode: ThemeMode? = null,
+    onThemeModeChange: ((ThemeMode) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val navController = rememberNavController()
@@ -73,11 +78,16 @@ fun MkreadNavHost(
                 readerViewModelFactory(container, bookId)
             }
             val readerViewModel: ReaderViewModel = viewModel(factory = factory)
+            val displaySettings by container.readerDisplaySettings.settings.collectAsState()
             ReaderRoute(
                 viewModel = readerViewModel,
                 narrationController = container.narrationController,
                 nightModeEnabled = nightModeEnabled,
                 onToggleNightMode = onToggleNightMode,
+                displaySettings = displaySettings,
+                onDisplaySettingsChange = container.readerDisplaySettings::update,
+                themeMode = themeMode,
+                onThemeModeChange = onThemeModeChange,
                 onBack = navController::popBackStack,
                 onOpenEditor = { chapterId ->
                     navController.navigate(chapterEditorRoute(bookId, chapterId)) {

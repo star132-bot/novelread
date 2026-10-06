@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -92,9 +93,14 @@ fun BookRow(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
+                    // The default stop dot and gap make an unread book look fully read.
                     LinearProgressIndicator(
                         progress = { book.progressFraction.coerceIn(0f, 1f) },
                         modifier = Modifier.weight(1f),
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                        strokeCap = StrokeCap.Round,
+                        gapSize = 0.dp,
+                        drawStopIndicator = {},
                     )
                     Text(
                         text = "${(book.progressFraction.coerceIn(0f, 1f) * 100).roundToInt()}%",

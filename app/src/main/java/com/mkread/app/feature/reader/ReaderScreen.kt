@@ -52,6 +52,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import com.mkread.app.R
+import com.mkread.app.playback.SentenceId
+import com.mkread.app.ui.theme.ThemeMode
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -67,6 +69,10 @@ fun ReaderRoute(
     narrationController: ReaderNarrationController? = null,
     nightModeEnabled: Boolean = false,
     onToggleNightMode: (() -> Unit)? = null,
+    displaySettings: ReaderDisplaySettings = ReaderDisplaySettings(),
+    onDisplaySettingsChange: ((ReaderDisplaySettings) -> Unit)? = null,
+    themeMode: ThemeMode? = null,
+    onThemeModeChange: ((ThemeMode) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -98,6 +104,32 @@ fun ReaderRoute(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     BackHandler { viewModel.onAction(ReaderAction.Exit) }
+    // While narration is running, jumping to another chapter continues narration there instead of
+    // leaving the voice reading a chapter that is no longer on screen.
+    var narrateChapterOnLoad by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(state, narrateChapterOnLoad) {
+        val targetChapterId = narrateChapterOnLoad ?: return@LaunchedEffect
+        val loaded = state as? ReaderUiState.Loaded ?: return@LaunchedEffect
+        if (loaded.chapter.id != targetChapterId || loaded.pages.isEmpty()) return@LaunchedEffect
+        narrateChapterOnLoad = null
+        val first = loaded.sentences.firstOrNull() ?: return@LaunchedEffect
+        viewModel.onAction(ReaderAction.ReadFromOffset(first.startInclusive))
+    }
+    val narrationActive = playbackState.status == ReaderPlaybackStatus.PLAYING ||
+        playbackState.status == ReaderPlaybackStatus.PREPARING
+    val onReaderAction: (ReaderAction) -> Unit = { action ->
+        val loaded = state as? ReaderUiState.Loaded
+        val targetChapterId = when (action) {
+            is ReaderAction.GoToChapter -> action.chapterId
+            ReaderAction.NextChapter -> loaded?.chapters?.getOrNull(loaded.chapterIndex + 1)?.id
+            ReaderAction.PreviousChapter -> loaded?.chapters?.getOrNull(loaded.chapterIndex - 1)?.id
+            else -> null
+        }
+        if (targetChapterId != null && narrationActive && targetChapterId != loaded?.chapter?.id) {
+            narrateChapterOnLoad = targetChapterId
+        }
+        viewModel.onAction(action)
+    }
     LaunchedEffect(viewModel, narrationController) {
         viewModel.events.collect { event ->
             when (event) {
@@ -126,25 +158,65 @@ fun ReaderRoute(
         nightModeEnabled = nightModeEnabled,
         onToggleNightMode = onToggleNightMode,
         snackbarHostState = snackbarHostState,
-        onAction = viewModel::onAction,
+        onAction = onReaderAction,
+        displaySettings = displaySettings,
+        onDisplaySettingsChange = onDisplaySettingsChange,
+        themeMode = themeMode,
+        onThemeModeChange = onThemeModeChange,
         onPlaybackAction = { action ->
             val controller = narrationController ?: return@ReaderScreen
+            val loaded = state as? ReaderUiState.Loaded
             when (action) {
                 ReaderPlaybackAction.Toggle -> when {
                     playbackState.isPlaying -> controller.pause()
-                    playbackState.status == ReaderPlaybackStatus.PAUSED -> controller.play()
-                    else -> {
-                        val loaded = state as? ReaderUiState.Loaded
-                        val sentence = loaded?.sentences?.nearestBoundary(loaded.characterOffset)
-                        if (loaded != null && sentence != null) {
+                    // Resume only when the paused sentence is still what the reader shows; after the
+                    // reader turned to another page or chapter, read from there instead.
+                    playbackState.status == ReaderPlaybackStatus.PAUSED &&
+                        (loaded == null || playbackState.activeSentence.isOnCurrentPage(loaded)) ->
+                        controller.play()
+                    loaded != null -> {
+                        val sentence = loaded.sentences.firstOnPage(loaded)
+                        if (sentence != null) {
                             requestNotificationsOnce()
-                            controller.start(loaded, sentence)
+                            viewModel.onAction(ReaderAction.ReadFromOffset(sentence.startInclusive))
                         }
                     }
+                    else -> Unit
                 }
-                ReaderPlaybackAction.Previous -> controller.previous()
-                ReaderPlaybackAction.Next -> controller.next()
-                ReaderPlaybackAction.Replay -> controller.replay()
+                // Sentence skipping restarts narration from the neighbouring sentence, so it also
+                // works before narration has started and when the next sentence is not generated yet.
+                ReaderPlaybackAction.Previous, ReaderPlaybackAction.Next -> if (loaded != null) {
+                    val delta = if (action == ReaderPlaybackAction.Next) 1 else -1
+                    val current = loaded.currentNarrationSentence(playbackState.activeSentence)
+                    val position = current?.let(loaded.sentences::indexOf) ?: -1
+                    val target = loaded.sentences.getOrNull(position + delta)
+                    val nextChapter = loaded.chapters.getOrNull(loaded.chapterIndex + 1)
+                    when {
+                        target != null -> {
+                            requestNotificationsOnce()
+                            viewModel.onAction(ReaderAction.ReadFromOffset(target.startInclusive))
+                        }
+                        delta > 0 && nextChapter != null -> {
+                            narrateChapterOnLoad = nextChapter.id
+                            viewModel.onAction(ReaderAction.NextChapter)
+                        }
+                        current != null -> {
+                            requestNotificationsOnce()
+                            viewModel.onAction(ReaderAction.ReadFromOffset(current.startInclusive))
+                        }
+                    }
+                } else {
+                    Unit
+                }
+                ReaderPlaybackAction.Replay -> when {
+                    playbackState.status == ReaderPlaybackStatus.PLAYING ||
+                        playbackState.status == ReaderPlaybackStatus.PAUSED -> controller.replay()
+                    loaded != null -> loaded.currentNarrationSentence(playbackState.activeSentence)?.let {
+                        requestNotificationsOnce()
+                        viewModel.onAction(ReaderAction.ReadFromOffset(it.startInclusive))
+                    }
+                    else -> Unit
+                }
                 is ReaderPlaybackAction.SetSpeed -> controller.setSpeed(action.value)
                 is ReaderPlaybackAction.SetEmotionEnabled -> {
                     controller.setEmotionEnabled(action.enabled)
@@ -170,11 +242,16 @@ fun ReaderScreen(
     onPlaybackAction: (ReaderPlaybackAction) -> Unit = {},
     nightModeEnabled: Boolean = false,
     onToggleNightMode: (() -> Unit)? = null,
+    displaySettings: ReaderDisplaySettings = ReaderDisplaySettings(),
+    onDisplaySettingsChange: ((ReaderDisplaySettings) -> Unit)? = null,
+    themeMode: ThemeMode? = null,
+    onThemeModeChange: ((ThemeMode) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val loaded = state as? ReaderUiState.Loaded
     var menuExpanded by remember { mutableStateOf(false) }
     var chapterListVisible by remember { mutableStateOf(false) }
+    var displaySheetVisible by remember { mutableStateOf(false) }
     Scaffold(
         modifier = modifier.fillMaxSize(),
         contentWindowInsets = WindowInsets.safeDrawing,
@@ -216,6 +293,15 @@ fun ReaderScreen(
                                 expanded = menuExpanded,
                                 onDismissRequest = { menuExpanded = false },
                             ) {
+                                if (onDisplaySettingsChange != null) {
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.reader_display_settings)) },
+                                        onClick = {
+                                            menuExpanded = false
+                                            displaySheetVisible = true
+                                        },
+                                    )
+                                }
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.reader_edit_chapter)) },
                                     onClick = {
@@ -275,6 +361,7 @@ fun ReaderScreen(
                 is ReaderUiState.Error -> ReaderErrorState(state, onAction)
                 is ReaderUiState.Loaded -> ReaderLoadedContent(
                     state = state,
+                    displaySettings = displaySettings,
                     snackbarHostState = snackbarHostState,
                     onAction = onAction,
                 )
@@ -291,6 +378,38 @@ fun ReaderScreen(
             },
             onDismiss = { chapterListVisible = false },
         )
+    }
+    if (displaySheetVisible && onDisplaySettingsChange != null) {
+        ReaderDisplaySheet(
+            settings = displaySettings,
+            onSettingsChange = onDisplaySettingsChange,
+            themeMode = themeMode,
+            onThemeModeChange = onThemeModeChange,
+            onDismiss = { displaySheetVisible = false },
+        )
+    }
+}
+
+/** The sentence narration is on, or the first sentence of the visible page when narration is elsewhere. */
+private fun ReaderUiState.Loaded.currentNarrationSentence(active: SentenceId?): SentenceRange? =
+    active
+        ?.takeIf { it.isOnCurrentPage(this) }
+        ?.let { id -> sentences.firstOrNull { id.start in it.startInclusive until it.endExclusive } }
+        ?: sentences.firstOnPage(this)
+
+private fun SentenceId?.isOnCurrentPage(reader: ReaderUiState.Loaded): Boolean {
+    if (this == null || bookId != reader.book.id || chapterId != reader.chapter.id) return false
+    val page = reader.pages.getOrNull(reader.currentPage) ?: return true
+    return start < page.endExclusive && end > page.start
+}
+
+private fun List<SentenceRange>.firstOnPage(reader: ReaderUiState.Loaded): SentenceRange? {
+    val page = reader.pages.getOrNull(reader.currentPage)
+    return if (page == null) {
+        nearestBoundary(reader.characterOffset)
+    } else {
+        firstOrNull { it.endExclusive > page.start && it.startInclusive < page.endExclusive }
+            ?: nearestBoundary(page.start)
     }
 }
 
@@ -312,6 +431,7 @@ private fun ReaderErrorState(
 @Composable
 private fun ReaderLoadedContent(
     state: ReaderUiState.Loaded,
+    displaySettings: ReaderDisplaySettings,
     snackbarHostState: SnackbarHostState,
     onAction: (ReaderAction) -> Unit,
 ) {
@@ -347,13 +467,13 @@ private fun ReaderLoadedContent(
             )
         }
     }
-    LaunchedEffect(viewportSize, state.paginationSpec, density.fontScale) {
+    LaunchedEffect(viewportSize, state.paginationSpec, density.fontScale, displaySettings) {
         if (viewportSize.width > 0 && viewportSize.height > 0) {
             val updatedSpec = state.paginationSpec.copy(
                 widthPx = viewportSize.width,
                 heightPx = viewportSize.height,
                 fontScale = density.fontScale,
-            )
+            ).withDisplaySettings(displaySettings, density.density)
             if (updatedSpec != state.paginationSpec) {
                 onAction(ReaderAction.LayoutChanged(updatedSpec))
             }

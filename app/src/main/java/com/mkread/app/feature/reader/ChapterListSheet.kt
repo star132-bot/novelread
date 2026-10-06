@@ -1,5 +1,6 @@
 package com.mkread.app.feature.reader
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -20,6 +22,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,8 +44,15 @@ fun ChapterListSheet(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val currentIndex = chapters.indexOfFirst { it.id == currentChapterId }.coerceAtLeast(0)
+    // Open at the current chapter rather than at the first one, which in a long book meant
+    // scrolling through dozens of chapters to find where reading had stopped.
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = (currentIndex - 2).coerceAtLeast(0),
+    )
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         modifier = modifier.testTag("chapter-list-sheet"),
     ) {
         Text(
@@ -58,7 +68,7 @@ fun ChapterListSheet(
         )
         Spacer(Modifier.height(12.dp))
         HorizontalDivider()
-        LazyColumn {
+        LazyColumn(state = listState) {
             items(
                 items = chapters,
                 key = ChapterEntity::id,
@@ -83,6 +93,10 @@ private fun ChapterRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .then(
+                if (current) Modifier.background(MaterialTheme.colorScheme.secondaryContainer)
+                else Modifier,
+            )
             .clickable(onClick = onClick)
             .then(
                 if (current) Modifier.semantics { contentDescription = currentDescription }

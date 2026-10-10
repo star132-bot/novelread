@@ -35,7 +35,8 @@ class Settings:
     # Origins allowed to show the admin console in an iframe, e.g. https://hub.mkauth.sbs.
     admin_embed_origins: list[str] = field(default_factory=lambda: _list("ADMIN_EMBED_ORIGINS"))
     # Mainland-China copy of APKs and voice packs, e.g. https://<bucket>.oss-cn-shanghai.aliyuncs.com
-    # (see app/mirror.py); downloads fall back to this server when a file is not there.
+    # (see app/mirror.py); several may be given, comma separated, and are tried in order.
+    # Downloads fall back to this server when no mirror has the file.
     download_mirror_url: str = field(default_factory=lambda: os.environ.get("DOWNLOAD_MIRROR_URL", "").strip().rstrip("/"))
     session_days: int = field(default_factory=lambda: int(os.environ.get("SESSION_DAYS", "180")))
     max_upload_bytes: int = field(default_factory=lambda: int(os.environ.get("MAX_UPLOAD_MB", "200")) * 1024 * 1024)
@@ -49,8 +50,8 @@ class Settings:
             local = origin.startswith(("http://localhost:", "http://127.0.0.1:"))
             if not (origin.startswith("https://") or local) or any(c in origin for c in " ;'\"*"):
                 raise ValueError("ADMIN_EMBED_ORIGINS entries must be https:// origins (or local http for development)")
-        if self.download_mirror_url and not self.download_mirror_url.startswith("https://"):
-            raise ValueError("DOWNLOAD_MIRROR_URL must be an https:// URL")
+        if any(not url.startswith("https://") for url in self.download_mirror_url.split(",") if url.strip()):
+            raise ValueError("DOWNLOAD_MIRROR_URL entries must be https:// URLs")
         for entry in self.admin_service_tokens:
             name, role, token = (entry.split(":", 2) + ["", ""])[:3]
             if not name or role not in {"viewer", "operator", "superadmin"} or len(token) < 32:

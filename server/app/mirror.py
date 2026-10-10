@@ -5,7 +5,8 @@ mirror holding the same files under the same flat, immutable names (`<name>.apk`
 a GitHub release fetched through a mainland proxy (scripts/sync-github-mirror.sh) or an object
 store such as Aliyun OSS (server/deploy/sync-download-mirror.sh). A mirror URL is handed out only
 while a recent HEAD request found the file with the right size, so a missing upload or a mirror
-outage falls back to the Cloudflare URL. Clients verify size and SHA-256 either way.
+outage falls back to the Cloudflare URL. Several mirrors (comma separated) are tried in order,
+because free proxies come and go. Clients verify size and SHA-256 either way.
 
     python -m app.mirror plan    # "<path under DATA_DIR>\t<file name>\t<size>" for every live file
 """
@@ -24,6 +25,9 @@ RECHECK_SECONDS = 600
 # re-checked soon instead of pinning clients to the slow Cloudflare URL for RECHECK_SECONDS.
 MISS_RECHECK_SECONDS = 30
 HEAD_TIMEOUT_SECONDS = 3
+# A mirror that cannot be reached at all is skipped for this long, so one dead proxy does not
+# add a HEAD timeout per file to every catalog request.
+UNREACHABLE_SKIP_SECONDS = 120
 
 
 def apk_key(file_name: str) -> str:
@@ -43,35 +47,55 @@ class _NoRedirects(urllib.request.HTTPRedirectHandler):
 _opener = urllib.request.build_opener(_NoRedirects)
 
 
+def base_urls(value: str) -> list[str]:
+    """Mirror base URLs from a comma-separated setting, in order of preference."""
+    return [part.strip().rstrip("/") for part in value.split(",") if part.strip()]
+
+
 class DownloadMirror:
     def __init__(self, base_url: str) -> None:
-        self.base_url = base_url.rstrip("/")
+        self.base_urls = base_urls(base_url)
         self._lock = threading.Lock()
         # url -> (found, checked at)
         self._checked: dict[str, tuple[bool, float]] = {}
+        # base url -> monotonic time until which it is skipped
+        self._unreachable: dict[str, float] = {}
 
     def url_for(self, key: str, size: int) -> str | None:
-        """The mirror URL for [key] if the object is uploaded with [size] bytes, else None."""
-        if not self.base_url:
-            return None
-        url = f"{self.base_url}/{key}"
+        """The first mirror URL for [key] whose object has [size] bytes, else None."""
+        for base in self.base_urls:
+            with self._lock:
+                if self._unreachable.get(base, 0.0) > time.monotonic():
+                    continue
+            url = f"{base}/{key}"
+            if self._found(base, url, size):
+                return url
+        return None
+
+    def _found(self, base: str, url: str, size: int) -> bool:
         with self._lock:
             cached = self._checked.get(url)
         max_age = RECHECK_SECONDS if cached and cached[0] else MISS_RECHECK_SECONDS
         if cached is None or time.monotonic() - cached[1] > max_age:
-            cached = (self._has(url, size), time.monotonic())
+            found = self._has(url, size)
+            cached = (bool(found), time.monotonic())
             with self._lock:
                 self._checked[url] = cached
-        return url if cached[0] else None
+                if found is None:
+                    self._unreachable[base] = time.monotonic() + UNREACHABLE_SKIP_SECONDS
+        return cached[0]
 
     @staticmethod
-    def _has(url: str, size: int) -> bool:
+    def _has(url: str, size: int) -> bool | None:
+        """Whether the object exists with [size] bytes; None when the mirror did not answer."""
         request = urllib.request.Request(url, method="HEAD")
         try:
             with _opener.open(request, timeout=HEAD_TIMEOUT_SECONDS) as response:
                 return response.status == 200 and response.headers.get("Content-Length") == str(size)
-        except (urllib.error.URLError, OSError, ValueError):
+        except urllib.error.HTTPError:
             return False
+        except (urllib.error.URLError, OSError, ValueError):
+            return None
 
 
 def plan(conn) -> list[tuple[str, str, int]]:

@@ -112,9 +112,9 @@ cd /opt/mkread-library && docker compose exec -T api sh -c "python -m app.voices
 
 Cloudflare 在国内很慢（实测约 85 KB/s），所以 APK 和音色包另有一份国内能快速下载的镜像。`/api/v1/voices` 和 `/api/v1/app/latest` 对镜像发 HEAD（不跟随跳转；文件存在的结果缓存 10 分钟，不存在时 30 秒后重查，刚发布的文件很快就会改走镜像）：文件存在且大小一致就下发镜像地址，否则仍给 Cloudflare 地址；App 两种地址都校验大小和 SHA-256，App 端无需改动。镜像上的文件名与服务器一致：`mkread-<版本>-<versionCode>-<sha前16位>.apk`、`<id>-r<revision>-<sha前16位>.zip`，内容永不变化。
 
-**当前：GitHub Release + ghfast（免费）。** 文件放在本仓库的 `downloads` Release（预发布，不影响 Latest），国内经 `https://ghfast.top/` 代理下载（上海实测约 3 MB/s）。ghfast 是第三方服务，失效时服务器会在 10 分钟内自动退回 Cloudflare。
+**当前：GitHub Release + 免费代理。** 文件放在本仓库的 `downloads` Release（预发布，不影响 Latest），国内经 `https://gh-proxy.com/`（备用 `https://ghfast.top/`）代理下载。这些是第三方服务，随时可能失效：`DOWNLOAD_MIRROR_URL` 可以用逗号写多个，服务器按顺序选第一个能拿到文件的；连不上的代理会被跳过 2 分钟，全部失效时退回 Cloudflare。
 
-- `.env`：`DOWNLOAD_MIRROR_URL=https://ghfast.top/https://github.com/<owner>/<repo>/releases/download/downloads`，重启 api 生效。
+- `.env`：`DOWNLOAD_MIRROR_URL=https://gh-proxy.com/https://github.com/<owner>/<repo>/releases/download/downloads,https://ghfast.top/https://github.com/<owner>/<repo>/releases/download/downloads`，重启 api 生效。可在应用服务器上用 `curl -sI <代理>/https://github.com/...apk` 检查代理是否可用（需返回 200 和正确的 content-length，不能是跳转）。
 - 同步：在能快速访问 GitHub、已登录 `gh` 的机器上运行 `scripts/sync-github-mirror.sh`（已有的跳过；`dist/` 或 `$MKREAD_MIRROR_SOURCES` 里哈希一致的文件直接用，否则从书库下载）。`scripts/publish-release.sh` 发版后会自动执行；发布音色包后手动运行一次。
 
 **备选：阿里云 OSS（上海，按下载流量计费约 0.5 元/GB，更稳更快）。** 建桶（华东 2，公共读，关闭「阻止公共访问」，用默认域名，无需备案）；建只能写这个桶的 RAM 子账号，密钥在应用服务器上用 `ossutil config` 录入，不进仓库也不进 `.env`；`DOWNLOAD_MIRROR_URL=https://<bucket>.oss-cn-shanghai.aliyuncs.com`；同步用 `/opt/mkread-library/sync-download-mirror.sh`（仓库里是 `server/deploy/sync-download-mirror.sh`，走内网上传）。

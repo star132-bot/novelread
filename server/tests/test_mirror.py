@@ -80,9 +80,28 @@ class DownloadMirrorTest(unittest.TestCase):
         self.assertIsNone(mirror.DownloadMirror("").url_for("voices/a.zip", 1))
         self.assertIsNone(mirror.DownloadMirror("http://127.0.0.1:9").url_for("voices/a.zip", 1))
 
+    def test_first_mirror_that_has_the_file_is_used(self):
+        empty = Path(tempfile.mkdtemp())
+        other = HTTPServer(("127.0.0.1", 0), partial(QuietHandler, directory=str(empty)))
+        threading.Thread(target=other.serve_forever, daemon=True).start()
+        self.addCleanup(other.shutdown)
+        missing = f"http://127.0.0.1:{other.server_port}"
+        downloads = mirror.DownloadMirror(f"{missing}, {self.base}/")
+        self.assertEqual(f"{self.base}/zipvoice-r2-abc.zip", downloads.url_for("zipvoice-r2-abc.zip", 1234))
+
+    def test_unreachable_mirror_is_skipped_for_a_while(self):
+        dead = "http://127.0.0.1:9"
+        downloads = mirror.DownloadMirror(f"{dead},{self.base}")
+        self.assertEqual(f"{self.base}/zipvoice-r2-abc.zip", downloads.url_for("zipvoice-r2-abc.zip", 1234))
+        downloads._checked.clear()
+        downloads._has = lambda url, size: self.fail(f"{url} should be skipped") if url.startswith(dead) else True
+        self.assertEqual(f"{self.base}/zipvoice-r2-abc.zip", downloads.url_for("zipvoice-r2-abc.zip", 1234))
+
     def test_mirror_must_be_https(self):
         with self.assertRaisesRegex(ValueError, "DOWNLOAD_MIRROR_URL"):
             Settings(database_url="postgresql://unused", download_mirror_url="http://example.com")
+        with self.assertRaisesRegex(ValueError, "DOWNLOAD_MIRROR_URL"):
+            Settings(database_url="postgresql://unused", download_mirror_url="https://a.example, http://b.example")
 
 
 if __name__ == "__main__":

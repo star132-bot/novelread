@@ -20,6 +20,9 @@ import urllib.request
 
 # Third-party mirrors can disappear, so answers are re-checked rather than trusted forever.
 RECHECK_SECONDS = 600
+# A file usually reaches the mirror a minute or two after it is published, so a miss is
+# re-checked soon instead of pinning clients to the slow Cloudflare URL for RECHECK_SECONDS.
+MISS_RECHECK_SECONDS = 30
 HEAD_TIMEOUT_SECONDS = 3
 
 
@@ -54,7 +57,8 @@ class DownloadMirror:
         url = f"{self.base_url}/{key}"
         with self._lock:
             cached = self._checked.get(url)
-        if cached is None or time.monotonic() - cached[1] > RECHECK_SECONDS:
+        max_age = RECHECK_SECONDS if cached and cached[0] else MISS_RECHECK_SECONDS
+        if cached is None or time.monotonic() - cached[1] > max_age:
             cached = (self._has(url, size), time.monotonic())
             with self._lock:
                 self._checked[url] = cached

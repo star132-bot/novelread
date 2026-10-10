@@ -66,7 +66,10 @@ class DownloadMirrorTest(unittest.TestCase):
         self.assertIsNone(downloads.url_for(key, 5))
         (self.root / "mkread-0.3.1-4-abc.apk").write_bytes(b"apk!!")
         self.assertIsNone(downloads.url_for(key, 5))
-        downloads._checked.clear()
+        # A miss is only trusted for MISS_RECHECK_SECONDS, not the full RECHECK_SECONDS.
+        downloads._checked = {
+            url: (found, at - mirror.MISS_RECHECK_SECONDS - 1) for url, (found, at) in downloads._checked.items()
+        }
         self.assertEqual(f"{self.base}/mkread-0.3.1-4-abc.apk", downloads.url_for(key, 5))
 
     def test_redirecting_mirror_is_ignored_because_the_app_does_not_follow_redirects(self):

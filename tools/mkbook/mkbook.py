@@ -22,6 +22,9 @@ from pathlib import Path
 MIMETYPE = "application/vnd.mkread.book+zip"
 FORMAT = "mkbook"
 FORMAT_VERSION = 1
+# Version 2 adds inline images (spec §1.4); books without images are still written as version 1.
+IMAGES_FORMAT_VERSION = 2
+SUPPORTED_FORMAT_VERSIONS = {FORMAT_VERSION, IMAGES_FORMAT_VERSION}
 MANIFEST = "mkbook.json"
 
 BOOK_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{1,63}$")
@@ -32,6 +35,11 @@ MAX_COVER_BYTES = 10 * 1024 * 1024
 MAX_PACKAGE_BYTES = 200 * 1024 * 1024
 MAX_EXPANDED_BYTES = 400 * 1024 * 1024
 COVER_TYPES = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+MAX_IMAGES = 2000
+IMAGE_PATH = re.compile(r"^images/[A-Za-z0-9][A-Za-z0-9._-]{0,99}\.(?:jpg|png|webp)$")
+# A whole chapter line `![caption](path)`; the caption may be empty but cannot contain "]".
+IMAGE_LINE = re.compile(r"^!\[([^\]\n]{0,200})\]\(([^()\s]+)\)$")
 SCENE_BREAK = "※※※"
 
 # Same heading rule the app uses for TXT imports (TxtChapterDetector.kt).
@@ -46,6 +54,27 @@ SCENE_BREAK_LINE = re.compile(r"^[\s*＊※☆★◇◆·•\-—=~～#]{3,}$")
 
 class MkBookError(Exception):
     """Raised when a source or package violates the MKBook spec."""
+
+
+def image_type(data: bytes) -> str | None:
+    """File extension matching the image's actual content, or None if it is not JPEG/PNG/WebP."""
+    if data.startswith(b"\xff\xd8\xff"):
+        return ".jpg"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return ".webp"
+    return None
+
+
+def image_refs(text: str) -> list[tuple[str, str]]:
+    """(caption, path) for every image line in a chapter body."""
+    refs = []
+    for line in text.split("\n"):
+        match = IMAGE_LINE.match(line)
+        if match:
+            refs.append((match.group(1), match.group(2)))
+    return refs
 
 
 @dataclass
@@ -68,6 +97,8 @@ class Book:
     status: str | None = None
     cover: tuple[str, bytes] | None = None  # (extension, bytes)
     pronunciation: bytes | None = None
+    # Package path (images/<name>) → bytes; chapter text refers to these paths.
+    images: dict[str, bytes] = field(default_factory=dict)
     revision: int = 1
 
 
@@ -200,12 +231,67 @@ def read_mktxt(path: Path) -> Book:
         chapters=chapters,
     )
     if meta.get("cover"):
-        cover = (path.parent / meta["cover"]).resolve()
-        book.cover = (cover.suffix.lower(), cover.read_bytes())
+        data = (path.parent / meta["cover"]).resolve().read_bytes()
+        ext = image_type(data)
+        if ext is None:
+            raise MkBookError("封面需为 JPEG/PNG/WebP")
+        book.cover = (ext, data)
     sidecar = path.with_suffix(".pronunciation.json")
     if sidecar.is_file():
         book.pronunciation = sidecar.read_bytes()
+    embed_images(book, lambda ref: _read_local_image(path.parent, ref))
     return book
+
+
+def _read_local_image(base: Path, ref: str) -> tuple[str, bytes]:
+    image = (base / ref).resolve()
+    if not image.is_file():
+        raise MkBookError(f"找不到插图文件：{ref}")
+    return image.name, image.read_bytes()
+
+
+def _package_image_name(original: str, ext: str, taken: set[str]) -> str:
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "-", Path(original).stem).strip("-._")[:80] or "image"
+    if not stem[0].isalnum():
+        stem = "img" + stem
+    name, n = f"{stem}{ext}", 1
+    while f"images/{name}" in taken:
+        n += 1
+        name = f"{stem}-{n}{ext}"
+    return f"images/{name}"
+
+
+def embed_images(book: Book, load) -> None:
+    """Rewrites every image line to a package path, loading each referenced file once.
+
+    `load(ref)` returns (original file name, bytes) for a reference found in the text.
+    """
+    by_ref: dict[str, str] = {}
+    by_hash: dict[str, str] = {}
+    for chapter in book.chapters:
+        lines = chapter.text.split("\n")
+        for n, line in enumerate(lines):
+            match = IMAGE_LINE.match(line)
+            if not match:
+                continue
+            caption, ref = match.groups()
+            if ref not in by_ref:
+                original, data = load(ref)
+                ext = image_type(data)
+                if ext is None:
+                    raise MkBookError(f"插图不是 JPEG/PNG/WebP：{ref}")
+                if len(data) > MAX_IMAGE_BYTES:
+                    raise MkBookError(f"插图超过 10MB：{ref}")
+                digest = sha256(data)
+                if digest not in by_hash:
+                    target = _package_image_name(original, ext, set(book.images))
+                    book.images[target] = data
+                    by_hash[digest] = target
+                by_ref[ref] = by_hash[digest]
+            lines[n] = f"![{caption}]({by_ref[ref]})"
+        chapter.text = "\n".join(lines)
+    if len(book.images) > MAX_IMAGES:
+        raise MkBookError(f"插图超过 {MAX_IMAGES} 张")
 
 
 def read_txt(path: Path) -> Book:
@@ -215,6 +301,9 @@ def read_txt(path: Path) -> Book:
 
 def normalize_text_keep_lines(raw: str) -> str:
     return unicodedata.normalize("NFC", raw.replace("﻿", "")).replace("\r\n", "\n").replace("\r", "\n")
+
+
+EPUB_IMAGE_PREFIX = "epub:"
 
 
 class _XhtmlText(html.parser.HTMLParser):
@@ -233,6 +322,12 @@ class _XhtmlText(html.parser.HTMLParser):
     def handle_starttag(self, tag, attrs):
         if tag in self.SKIP:
             self._skip += 1
+        if tag in {"img", "image"} and not self._skip:
+            values = dict(attrs)
+            src = values.get("src") or values.get("xlink:href") or values.get("href")
+            if src and not src.startswith(("data:", "http:", "https:")):
+                alt = re.sub(r"[\]\n]", "", values.get("alt") or "").strip()[:200]
+                self.parts.append(f"\n![{alt}]({EPUB_IMAGE_PREFIX}{src})\n")
         if tag in self.BLOCKS:
             self.parts.append("\n")
         if tag in self.HEADINGS and self.heading is None:
@@ -263,18 +358,26 @@ def read_epub(path: Path) -> Book:
         opf_path = container.find(".//{*}rootfile").get("full-path")
         opf = ET.fromstring(zf.read(opf_path))
         base = posixpath.dirname(opf_path)
-        manifest = {item.get("id"): item for item in opf.iter("{*}item")}
+        manifest = {item.get("id"): item for item in opf.iterfind(".//{*}item")}
         title = (opf.findtext(".//{*}title") or path.stem).strip()
         author = (opf.findtext(".//{*}creator") or "").strip() or None
         chapters = []
-        for ref in opf.iter("{*}itemref"):
+        for ref in opf.iterfind(".//{*}itemref"):
             item = manifest.get(ref.get("idref"))
             if item is None or "html" not in (item.get("media-type") or ""):
                 continue
             href = posixpath.normpath(posixpath.join(base, item.get("href")))
             parser = _XhtmlText()
             parser.feed(zf.read(href).decode("utf-8", errors="replace"))
-            text = normalize_text("".join(parser.parts))
+            # Image sources are relative to their XHTML file; make them archive paths.
+            folder = posixpath.dirname(href)
+            text = re.sub(
+                rf"^!\[([^\]\n]*)\]\({EPUB_IMAGE_PREFIX}([^)\n]+)\)$",
+                lambda m: f"![{m.group(1)}]({EPUB_IMAGE_PREFIX}"
+                          f"{posixpath.normpath(posixpath.join(folder, m.group(2).split('#')[0]))})",
+                normalize_text("".join(parser.parts)),
+                flags=re.MULTILINE,
+            )
             heading = parser.heading
             if heading and text.startswith(heading):
                 text = text[len(heading) :].lstrip("\n")
@@ -288,7 +391,30 @@ def read_epub(path: Path) -> Book:
                 if ext in COVER_TYPES:
                     cover = (ext, zf.read(posixpath.normpath(posixpath.join(base, item.get("href")))))
                     break
-    return Book(id="", title=title, author=author, chapters=chapters, cover=cover)
+        book = Book(id="", title=title, author=author, chapters=chapters, cover=cover)
+        cover_hash = sha256(cover[1]) if cover else None
+        names = set(zf.namelist())
+
+        def load(ref: str) -> tuple[str, bytes]:
+            name = ref[len(EPUB_IMAGE_PREFIX):] if ref.startswith(EPUB_IMAGE_PREFIX) else ref
+            if name not in names:
+                raise MkBookError(f"EPUB 里找不到图片：{name}")
+            return posixpath.basename(name), zf.read(name)
+
+        # The cover usually has its own page; it is shown on the shelf, not as an illustration.
+        for chapter in book.chapters:
+            kept = []
+            for line in chapter.text.split("\n"):
+                match = IMAGE_LINE.match(line)
+                if match:
+                    data = load(match.group(2))[1]
+                    if image_type(data) is None or sha256(data) == cover_hash:
+                        continue
+                kept.append(line)
+            chapter.text = "\n".join(kept)
+        book.chapters = [c for c in book.chapters if c.text]
+        embed_images(book, load)
+    return book
 
 
 # ---------------------------------------------------------------- package I/O
@@ -327,11 +453,17 @@ def write_package(book: Book, out: Path) -> dict:
     seen = set()
     entries = []
     files: list[tuple[str, bytes]] = []
+    for path, data in book.images.items():
+        if not IMAGE_PATH.match(path) or image_type(data) != posixpath.splitext(path)[1]:
+            raise MkBookError(f"插图路径或格式不合规：{path}")
     for chapter in book.chapters:
         if not CHAPTER_ID.match(chapter.id or "") or chapter.id in seen:
             raise MkBookError(f"章节 id 无效或重复：{chapter.id}")
         seen.add(chapter.id)
         check_text(chapter.text, f"章节《{chapter.title}》")
+        for _, ref in image_refs(chapter.text):
+            if ref not in book.images:
+                raise MkBookError(f"章节《{chapter.title}》引用了不存在的插图：{ref}")
         data = chapter.text.encode("utf-8")
         path = f"chapters/{chapter.id}.txt"
         files.append((path, data))
@@ -362,13 +494,18 @@ def write_package(book: Book, out: Path) -> dict:
 
     manifest = {
         "format": FORMAT,
-        "formatVersion": FORMAT_VERSION,
+        "formatVersion": IMAGES_FORMAT_VERSION if book.images else FORMAT_VERSION,
         "id": book.id,
         "revision": book.revision,
         "updatedAt": _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "metadata": metadata,
         "chapters": entries,
     }
+    if book.images:
+        manifest["images"] = [
+            {"path": path, "size": len(data), "sha256": sha256(data)} for path, data in sorted(book.images.items())
+        ]
+        files.extend(sorted(book.images.items()))
     if book.pronunciation:
         validate_pronunciation(book.pronunciation)
         manifest["narration"] = {"pronunciation": "pronunciation.json"}
@@ -380,7 +517,8 @@ def write_package(book: Book, out: Path) -> dict:
         zf.writestr(zipfile.ZipInfo("mimetype"), MIMETYPE, compress_type=zipfile.ZIP_STORED)
         zf.writestr(MANIFEST, json.dumps(manifest, ensure_ascii=False, indent=2), compress_type=zipfile.ZIP_DEFLATED)
         for path, data in files:
-            stored = zipfile.ZIP_STORED if path.startswith("cover") else zipfile.ZIP_DEFLATED
+            # Images are already compressed.
+            stored = zipfile.ZIP_STORED if path.startswith(("cover", "images/")) else zipfile.ZIP_DEFLATED
             zf.writestr(path, data, compress_type=stored)
     tmp.replace(out)
     validate_package(out)
@@ -434,8 +572,9 @@ def validate_package(path: Path) -> dict:
 
         if manifest.get("format") != FORMAT:
             raise MkBookError("format 必须是 mkbook")
-        if manifest.get("formatVersion") != FORMAT_VERSION:
-            raise MkBookError(f"不支持的 formatVersion：{manifest.get('formatVersion')}")
+        version = manifest.get("formatVersion")
+        if isinstance(version, bool) or version not in SUPPORTED_FORMAT_VERSIONS:
+            raise MkBookError(f"不支持的 formatVersion：{version}")
         if not isinstance(manifest.get("id"), str) or not BOOK_ID.match(manifest["id"]):
             raise MkBookError("id 不合规")
         revision = manifest.get("revision")
@@ -453,7 +592,11 @@ def validate_package(path: Path) -> dict:
                 raise MkBookError("封面路径无效")
             if zf.getinfo(cover).file_size > MAX_COVER_BYTES:
                 raise MkBookError("封面超过 10MB")
+            if image_type(zf.read(cover)) != posixpath.splitext(cover)[1]:
+                raise MkBookError("封面内容与扩展名不符")
             allowed.add(cover)
+        images = validate_images(zf, manifest, names, version)
+        allowed.update(images)
         chapters = manifest.get("chapters")
         if not isinstance(chapters, list) or not 1 <= len(chapters) <= MAX_CHAPTERS:
             raise MkBookError("chapters 需为 1–20000 项")
@@ -482,6 +625,10 @@ def validate_package(path: Path) -> dict:
             check_text(text, f"{where}《{title}》")
             if entry.get("chars") != len(text):
                 raise MkBookError(f"{where}《{title}》: chars 与正文不符")
+            if version >= IMAGES_FORMAT_VERSION:
+                for _, ref in image_refs(text):
+                    if ref not in images:
+                        raise MkBookError(f"{where}《{title}》: 引用了未登记的插图 {ref}")
         narration = manifest.get("narration") or {}
         if narration.get("pronunciation"):
             if narration["pronunciation"] != "pronunciation.json" or "pronunciation.json" not in names:
@@ -492,6 +639,35 @@ def validate_package(path: Path) -> dict:
         if extra:
             raise MkBookError(f"包含未声明的文件：{sorted(extra)[:5]}")
     return manifest
+
+
+def validate_images(zf: zipfile.ZipFile, manifest: dict, names: set[str], version: int) -> set[str]:
+    """Checks the images list (spec §1.4); returns the declared paths."""
+    entries = manifest.get("images")
+    if entries is None:
+        return set()
+    if version < IMAGES_FORMAT_VERSION:
+        raise MkBookError("只有 formatVersion 2 才能包含 images")
+    if not isinstance(entries, list) or len(entries) > MAX_IMAGES:
+        raise MkBookError(f"images 需为不超过 {MAX_IMAGES} 项的数组")
+    paths: set[str] = set()
+    for n, entry in enumerate(entries, start=1):
+        path = entry.get("path") if isinstance(entry, dict) else None
+        where = f"第 {n} 张插图"
+        if not isinstance(path, str) or not IMAGE_PATH.match(path) or path in paths or path not in names:
+            raise MkBookError(f"{where}: 路径不合规、重复或文件不存在")
+        size = entry.get("size")
+        if not isinstance(size, int) or isinstance(size, bool) or not 0 < size <= MAX_IMAGE_BYTES:
+            raise MkBookError(f"{where}: size 不合规（单张不超过 10MB）")
+        if zf.getinfo(path).file_size != size:
+            raise MkBookError(f"{where}: size 与文件不符")
+        data = zf.read(path)
+        if sha256(data) != entry.get("sha256"):
+            raise MkBookError(f"{where}: sha256 不匹配")
+        if image_type(data) != posixpath.splitext(path)[1]:
+            raise MkBookError(f"{where}: 内容不是扩展名所示的图片格式")
+        paths.add(path)
+    return paths
 
 
 def read_manifest(path: Path) -> dict:
@@ -530,6 +706,13 @@ def cmd_build(args) -> None:
         book.title = args.title
     if args.author:
         book.author = args.author
+    if args.cover:
+        cover = Path(args.cover)
+        data = cover.read_bytes()
+        ext = image_type(data)
+        if ext is None:
+            raise MkBookError("封面需为 JPEG/PNG/WebP")
+        book.cover = (ext, data)
     previous = None
     if args.previous:
         previous = validate_package(Path(args.previous))
@@ -542,8 +725,12 @@ def cmd_build(args) -> None:
     out = Path(args.output) if args.output else source.with_suffix(".mkbook")
     manifest = write_package(book, out)
     total = sum(c["chars"] for c in manifest["chapters"])
+    extras = "".join([
+        f"，{len(manifest['images'])} 张插图" if manifest.get("images") else "",
+        "，含封面" if manifest["metadata"].get("cover") else "",
+    ])
     print(f"已生成 {out}：《{manifest['metadata']['title']}》 r{manifest['revision']}，"
-          f"{len(manifest['chapters'])} 章，{total} 字")
+          f"{len(manifest['chapters'])} 章，{total} 字{extras}")
     if previous:
         print_diff(diff_manifests(previous, manifest))
 
@@ -556,7 +743,7 @@ def print_diff(d: dict) -> None:
 def cmd_validate(args) -> None:
     manifest = validate_package(Path(args.package))
     print(f"✓ 合规：{manifest['id']} r{manifest['revision']}《{manifest['metadata']['title']}》"
-          f"{len(manifest['chapters'])} 章")
+          f"{len(manifest['chapters'])} 章，{len(manifest.get('images') or [])} 张插图")
 
 
 def cmd_info(args) -> None:
@@ -595,6 +782,7 @@ def main(argv=None) -> int:
     b.add_argument("--id", help="书的 id（.txt/.epub 必填）")
     b.add_argument("--title")
     b.add_argument("--author")
+    b.add_argument("--cover", help="封面图片（JPEG/PNG/WebP，≤10MB）")
     b.add_argument("--previous", help="上一版 .mkbook：沿用章节 id，revision 自动 +1")
     b.add_argument("--revision", type=int)
     b.set_defaults(func=cmd_build)

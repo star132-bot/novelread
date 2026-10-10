@@ -1,5 +1,6 @@
 package com.mkread.app.speech
 
+import com.mkread.app.MkreadApplication
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -112,7 +113,10 @@ class VoiceImportActivityTest {
             } && scenario.state == Lifecycle.State.DESTROYED
         }
 
-        assertEquals(VOICE_ID, selectedVoice.readText(Charsets.UTF_8))
+        // Selection goes through the narration settings; the legacy selection file is no longer written.
+        val narration = (ApplicationProvider.getApplicationContext<MkreadApplication>()).container.narrationController
+        await { narration.state.value.voiceId == VoiceCatalog.cloneId(VOICE_ID) }
+        assertFalse(selectedVoice.exists())
         assertTrue(stagingRoot.listFiles().isNullOrEmpty())
         scenario.close()
     }

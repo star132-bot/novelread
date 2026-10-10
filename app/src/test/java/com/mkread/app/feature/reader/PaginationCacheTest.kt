@@ -29,7 +29,7 @@ class PaginationCacheTest {
             base.copy(spec = base.spec.copy(fontSizeSp = 19f)),
             base.copy(spec = base.spec.copy(lineSpacingMultiplier = 1.6f)),
             base.copy(spec = base.spec.copy(horizontalMarginPx = 49)),
-            base.copy(algorithmVersion = 2),
+            base.copy(algorithmVersion = base.algorithmVersion + 1),
         )
 
         assertTrue(base.cacheId().matches(Regex("[0-9a-f]{64}")))

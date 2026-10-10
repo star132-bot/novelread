@@ -38,6 +38,25 @@ class AndroidPaginationEngineTest {
         assertEquals(text.length, final.ranges.last().endExclusive)
     }
 
+    @Test
+    fun illustrationLinesArePagesOfTheirOwn() = runBlocking {
+        val body = "夜色渐深，林默推开那扇吱呀作响的木门。".repeat(60)
+        val text = "![地图](images/map.png)\n$body\n![](images/b.jpg)\n![](images/c.webp)\n结尾。\n![](images/d.png)"
+        val ranges = engine.paginate(text, spec()).last().ranges
+        val pages = ranges.map { text.substring(it.start, it.endExclusive) }
+
+        assertTrue(validPageRanges(text, ranges))
+        assertEquals("![地图](images/map.png)\n", pages.first())
+        assertTrue(pages.contains("![](images/b.jpg)\n"))
+        assertTrue(pages.contains("![](images/c.webp)\n"))
+        assertEquals("结尾。\n", pages[pages.size - 2])
+        assertEquals("![](images/d.png)", pages.last())
+        val illustrations = ranges.mapNotNull { illustrationOnPage(text, it)?.path }
+        assertEquals(listOf("images/map.png", "images/b.jpg", "images/c.webp", "images/d.png"), illustrations)
+        // No text page contains an image line.
+        assertTrue(pages.filter { "![" in it }.all { it.count { c -> c == '!' } == 1 })
+    }
+
     @Test(timeout = 60_000L)
     fun longChapterPublishesFirstBatchBeforeCompletePagination() = runBlocking {
         val text = ("This is a long paragraph for progressive layout. ".repeat(8_000))

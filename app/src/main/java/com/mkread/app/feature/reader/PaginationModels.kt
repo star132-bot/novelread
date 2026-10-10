@@ -35,7 +35,8 @@ data class PaginationKey(
     val chapterId: String,
     val contentSha256: String,
     val spec: PaginationSpec,
-    val algorithmVersion: Int = 1,
+    // 2: illustration lines are pages of their own.
+    val algorithmVersion: Int = 2,
 )
 
 fun PaginationKey.cacheId(): String {

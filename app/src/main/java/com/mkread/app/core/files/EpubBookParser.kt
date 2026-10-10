@@ -16,6 +16,12 @@ class EpubBookParser(
     private val zipReader: SafeZipReader = SafeZipReader(),
 ) : BookParser {
     override fun parse(source: File, sourceName: String): ParsedBook {
+        if (source.length() > ImportLimits.SOURCE_BYTES) {
+            throw BookParseException(
+                BookParseFailure.SOURCE_TOO_LARGE,
+                "EPUB exceeds the ${ImportLimits.SOURCE_BYTES} byte limit",
+            )
+        }
         try {
             zipReader.open(source).use { archive ->
                 requireEpubMimetype(archive)

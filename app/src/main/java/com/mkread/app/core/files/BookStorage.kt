@@ -40,6 +40,9 @@ interface BookStorage {
 
     fun writeCover(staging: ImportStaging, bytes: ByteArray): String
 
+    /** Stores an illustration at [path] (`images/<name>`, see [InlineImage]). */
+    fun writeImage(staging: ImportStaging, path: String, bytes: ByteArray)
+
     fun promote(staging: ImportStaging, bookId: String): File
 
     fun discard(staging: ImportStaging)
@@ -164,7 +167,7 @@ class FileBookStorage(
         val temporary = containedPath(bookDirectory, "source.$safeExtension.tmp")
         try {
             val result = FileOutputStream(temporary.toFile()).use { output ->
-                FileHash.copyBounded(input, output, ImportLimits.SOURCE_BYTES).also {
+                FileHash.copyBounded(input, output, ImportLimits.PACKAGE_BYTES).also {
                     output.flush()
                     output.fd.sync()
                 }
@@ -180,7 +183,7 @@ class FileBookStorage(
             target.toFile().delete()
             throw StorageException(
                 StorageFailure.SOURCE_TOO_LARGE,
-                "Source exceeds the ${ImportLimits.SOURCE_BYTES} byte limit",
+                "Source exceeds the ${ImportLimits.PACKAGE_BYTES} byte limit",
                 failure,
             )
         } catch (failure: IOException) {
@@ -263,6 +266,21 @@ class FileBookStorage(
         }
     }
 
+    override fun writeImage(staging: ImportStaging, path: String, bytes: ByteArray) {
+        if (!InlineImage.PATH.matches(path)) {
+            throw StorageException(StorageFailure.INVALID_PATH, "Invalid image path")
+        }
+        if (bytes.size.toLong() > ImportLimits.IMAGE_BYTES) {
+            throw StorageException(StorageFailure.COVER_TOO_LARGE, "Image exceeds the ${ImportLimits.IMAGE_BYTES} byte limit")
+        }
+        if (coverExtension(bytes) != path.substringAfterLast('.')) {
+            throw StorageException(StorageFailure.UNSUPPORTED_COVER, "Image content does not match its extension")
+        }
+        val bookDirectory = containedPath(requireStaging(staging), BOOK_DIRECTORY)
+        createDirectories(containedPath(bookDirectory, InlineImage.DIRECTORY))
+        writeBytesAtomically(containedPath(bookDirectory, path), bytes, "Unable to write image")
+    }
+
     override fun writeCover(staging: ImportStaging, bytes: ByteArray): String {
         if (bytes.size.toLong() > ImportLimits.COVER_BYTES) {
             throw StorageException(
@@ -278,7 +296,12 @@ class FileBookStorage(
         val transaction = requireStaging(staging)
         val bookDirectory = containedPath(transaction, BOOK_DIRECTORY)
         val target = containedPath(bookDirectory, "cover.$extension")
-        val temporary = containedPath(bookDirectory, "cover.$extension.tmp")
+        writeBytesAtomically(target, bytes, "Unable to write cover")
+        return target.fileName.toString()
+    }
+
+    private fun writeBytesAtomically(target: Path, bytes: ByteArray, failureMessage: String) {
+        val temporary = target.resolveSibling("${target.fileName}.tmp")
         try {
             FileOutputStream(temporary.toFile()).use { output ->
                 output.write(bytes)
@@ -288,9 +311,8 @@ class FileBookStorage(
             atomicReplace(temporary, target)
         } catch (failure: IOException) {
             temporary.toFile().delete()
-            throw StorageException(StorageFailure.IO_ERROR, "Unable to write cover", failure)
+            throw StorageException(StorageFailure.IO_ERROR, failureMessage, failure)
         }
-        return target.fileName.toString()
     }
 
     override fun promote(staging: ImportStaging, bookId: String): File {

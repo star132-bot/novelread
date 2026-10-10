@@ -7,6 +7,8 @@ import com.mkread.app.core.files.BookParseFailure
 import com.mkread.app.core.files.BookParser
 import com.mkread.app.core.files.BookStorage
 import com.mkread.app.core.files.EpubBookParser
+import com.mkread.app.core.files.FileHash
+import com.mkread.app.core.files.ImportLimits
 import com.mkread.app.core.files.MkBookParser
 import com.mkread.app.core.files.ImportStaging
 import com.mkread.app.core.files.SafeZipException
@@ -32,7 +34,8 @@ fun interface SourceTypeDetector {
 }
 
 class ContentSourceTypeDetector(
-    private val zipReader: SafeZipReader = SafeZipReader(),
+    // MKBook packages with illustrations expand beyond the EPUB limit; EPUBs are re-checked by their parser.
+    private val zipReader: SafeZipReader = SafeZipReader(expandedByteLimit = ImportLimits.EXPANDED_MKBOOK_BYTES),
 ) : SourceTypeDetector {
     override fun detect(source: File): SourceType {
         val prefix = source.inputStream().use { input ->
@@ -151,6 +154,7 @@ class ImportBookUseCase(
                 storage.writeChapter(staging, index + 1, chapter.text)
             }
             val coverPath = parsed.coverBytes?.let { bytes -> storage.writeCover(staging, bytes) }
+            if (parsed.images.isNotEmpty()) copyImages(copied.file, parsed.images, staging)
             storage.writeMetadata(
                 staging,
                 StoredBookMetadata(
@@ -223,6 +227,19 @@ class ImportBookUseCase(
         } catch (failure: Exception) {
             compensate(staging, promoted, bookId)
             return failure.toImportFailure()
+        }
+    }
+
+    /** Copies MKBook illustrations one at a time so only one image is in memory. */
+    private fun copyImages(source: File, images: Map<String, String>, staging: ImportStaging) {
+        SafeZipReader(expandedByteLimit = ImportLimits.EXPANDED_MKBOOK_BYTES).open(source).use { archive ->
+            images.forEach { (path, sha256) ->
+                val bytes = archive.read(path, ImportLimits.IMAGE_BYTES)
+                if (FileHash.sha256(bytes.inputStream()) != sha256) {
+                    throw BookParseException(BookParseFailure.MALFORMED_MKBOOK, "Image changed after validation: $path")
+                }
+                storage.writeImage(staging, path, bytes)
+            }
         }
     }
 

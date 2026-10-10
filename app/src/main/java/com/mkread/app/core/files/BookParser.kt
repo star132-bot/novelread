@@ -15,6 +15,8 @@ data class ParsedBook(
     /** MKBook packages carry a stable book id and revision used for in-place updates. */
     val catalogId: String? = null,
     val revision: Int? = null,
+    /** MKBook illustrations: package path (`images/<name>`) → SHA-256, verified while parsing. */
+    val images: Map<String, String> = emptyMap(),
 )
 
 data class ParsedChapter(

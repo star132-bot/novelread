@@ -10,6 +10,15 @@ class SentenceSegmenterTest {
     private val segmenter = SentenceSegmenter()
 
     @Test
+    fun illustrationLinesAreNotSentences() {
+        val text = "![地图](images/map.png)\n夜色渐深。\n![](images/b.jpg)\n他来了。"
+
+        val sentences = SentenceSegmenter().segment(text).map { text.substring(it.startInclusive, it.endExclusive) }
+
+        assertEquals(listOf("夜色渐深。", "他来了。"), sentences)
+    }
+
+    @Test
     fun chinesePunctuationKeepsClosingQuotesAndHorizontalWhitespace() {
         val text = "她问：“你好吗？”  他点头。\n\n第二段！"
 

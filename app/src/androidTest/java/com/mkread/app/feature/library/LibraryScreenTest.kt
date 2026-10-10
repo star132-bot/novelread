@@ -20,6 +20,10 @@ import com.mkread.app.core.database.ShelfFolderEntity
 import com.mkread.app.core.model.BookSummary
 import com.mkread.app.core.model.LibrarySort
 import com.mkread.app.core.model.SourceType
+import com.mkread.app.feature.reader.ReaderNarrationController
+import com.mkread.app.feature.reader.ReaderPlaybackUiState
+import com.mkread.app.feature.reader.ReaderUiState
+import com.mkread.app.feature.reader.SentenceRange
 import com.mkread.app.ui.theme.MkreadTheme
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
@@ -193,6 +197,7 @@ class LibraryScreenTest {
                     viewModel = viewModel,
                     onOpenBook = { harness.openedBookIds += it },
                     onOpenSpeechDebug = if (showDebugAction) ({ Unit }) else null,
+                    narration = IdleNarration,
                 )
             }
         }
@@ -203,6 +208,22 @@ class LibraryScreenTest {
             composeRule.onNodeWithText(books.first().title).assertIsDisplayed()
         }
         return harness
+    }
+
+    /** The shelf only reads the voice settings from narration; nothing plays in these tests. */
+    private object IdleNarration : ReaderNarrationController {
+        override val state = MutableStateFlow(ReaderPlaybackUiState())
+        override fun start(reader: ReaderUiState.Loaded, from: SentenceRange) = Unit
+        override fun play() = Unit
+        override fun pause() = Unit
+        override fun previous() = Unit
+        override fun next() = Unit
+        override fun replay() = Unit
+        override fun setSpeed(value: Float) = Unit
+        override fun setEmotionEnabled(enabled: Boolean) = Unit
+        override fun setVoice(voiceId: String) = Unit
+        override fun downloadVoicePack(modelId: String) = Unit
+        override fun refreshVoicePacks() = Unit
     }
 
     private data class Harness(

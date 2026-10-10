@@ -5,6 +5,7 @@ import android.graphics.text.LineBreaker
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
+import com.mkread.app.core.files.InlineImage
 import kotlin.math.min
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -52,15 +53,22 @@ class AndroidPaginationEngine(
             textSize = spec.fontSizeSp * spec.fontScale * (spec.densityDpi / BASE_DENSITY_DPI)
         }
         val ranges = ArrayList<PageRange>()
+        // Each illustration line is a page of its own; text pages stop before the next one.
+        val images = InlineImage.lineRanges(text)
+        var nextImage = 0
         var pageStart = 0
         while (pageStart < text.length) {
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
-            val proposedEnd = findPageEnd(text, pageStart, contentWidth, spec, paint)
-            val end = PageBoundary.safeEnd(text, pageStart, proposedEnd)
-            val safeEnd = if (end <= pageStart) {
-                PageBoundary.safeEnd(text, pageStart, pageStart + 1)
+            while (nextImage < images.size && images[nextImage].first < pageStart) nextImage += 1
+            val image = images.getOrNull(nextImage)
+            val safeEnd = if (image != null && image.first == pageStart) {
+                nextImage += 1
+                minOf(text.length, image.last + 2)
             } else {
-                end
+                val limit = image?.first ?: text.length
+                val proposedEnd = findPageEnd(text, pageStart, limit, contentWidth, spec, paint)
+                val end = PageBoundary.safeEnd(text, pageStart, proposedEnd)
+                if (end <= pageStart) PageBoundary.safeEnd(text, pageStart, pageStart + 1) else end
             }
             ranges += PageRange(ranges.size, pageStart, safeEnd)
             pageStart = safeEnd
@@ -98,14 +106,15 @@ class AndroidPaginationEngine(
     private fun findPageEnd(
         text: String,
         pageStart: Int,
+        limit: Int,
         contentWidth: Int,
         spec: PaginationSpec,
         paint: TextPaint,
     ): Int {
-        val remaining = text.length - pageStart
+        val remaining = limit - pageStart
         var lookahead = min(INITIAL_LOOKAHEAD, remaining)
         while (true) {
-            val windowEnd = min(text.length, pageStart + lookahead)
+            val windowEnd = min(limit, pageStart + lookahead)
             val layout = StaticLayout.Builder
                 .obtain(text, pageStart, windowEnd, paint, contentWidth)
                 .setIncludePad(true)
@@ -116,7 +125,7 @@ class AndroidPaginationEngine(
             val visibleEnd = visibleLineEnd(layout, pageStart, windowEnd, spec.heightPx)
             if (
                 visibleEnd >= windowEnd &&
-                windowEnd < text.length &&
+                windowEnd < limit &&
                 lookahead < MAX_LOOKAHEAD
             ) {
                 lookahead = min(MAX_LOOKAHEAD, lookahead * 2)

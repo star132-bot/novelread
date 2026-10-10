@@ -63,7 +63,7 @@ class BookStorageTest {
 
         assertStorageFailure(StorageFailure.SOURCE_TOO_LARGE) {
             storage.copySource(
-                LimitPlusOneInputStream(ImportLimits.SOURCE_BYTES + 1L),
+                LimitPlusOneInputStream(ImportLimits.PACKAGE_BYTES + 1L),
                 staging,
                 "txt",
             )

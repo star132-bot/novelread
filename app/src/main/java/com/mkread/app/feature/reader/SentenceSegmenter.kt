@@ -1,5 +1,6 @@
 package com.mkread.app.feature.reader
 
+import com.mkread.app.core.files.InlineImage
 import java.util.Locale
 
 class SentenceSegmenter(
@@ -15,6 +16,12 @@ class SentenceSegmenter(
         while (cursor < text.length) {
             cursor = skipWhitespace(text, cursor)
             if (cursor >= text.length) break
+            // Illustrations are pages of their own and are never narrated.
+            val imageEnd = imageLineEnd(text, cursor)
+            if (imageEnd != null) {
+                cursor = imageEnd
+                continue
+            }
 
             val start = cursor
             var scan = cursor
@@ -62,6 +69,12 @@ class SentenceSegmenter(
             }
         }
         return ranges
+    }
+
+    private fun imageLineEnd(text: String, start: Int): Int? {
+        if (!text.startsWith("![", start) || (start > 0 && text[start - 1] != '\n')) return null
+        val end = text.indexOf('\n', start).let { if (it < 0) text.length else it }
+        return end.takeIf { InlineImage.parse(text.subSequence(start, end)) != null }
     }
 
     private fun terminalPunctuationEnd(text: String, index: Int, codePoint: Int): Int? {

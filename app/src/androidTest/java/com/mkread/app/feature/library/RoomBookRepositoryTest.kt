@@ -321,6 +321,7 @@ class RoomBookRepositoryTest {
         override fun writeMetadata(staging: ImportStaging, metadata: StoredBookMetadata) = unused<Unit>()
 
         override fun writeCover(staging: ImportStaging, bytes: ByteArray): String = unused()
+        override fun writeImage(staging: ImportStaging, path: String, bytes: ByteArray): Unit = unused()
 
         override fun promote(staging: ImportStaging, bookId: String): File = unused()
 

@@ -199,6 +199,48 @@ class ImportBookUseCaseTest {
     }
 
     @Test
+    fun illustrations_areCopiedIntoTheBookBeforeMetadata() = runBlocking {
+        val harness = Harness(temporaryFolder.root)
+        val png = PNG_BYTES
+        harness.txtParser.images = mapOf("images/map.png" to png.sha256Hex())
+        val source = ByteArrayOutputStream().use { bytes ->
+            ZipOutputStream(bytes).use { zip ->
+                zip.putNextEntry(ZipEntry("images/map.png"))
+                zip.write(png)
+                zip.closeEntry()
+            }
+            bytes.toByteArray()
+        }
+
+        val result = harness.useCase(harness.request(source))
+
+        assertEquals(ImportResult.Success(BOOK_ID), result)
+        assertTrue(harness.events.indexOf("write-image-images/map.png") < harness.events.indexOf("write-metadata"))
+    }
+
+    @Test
+    fun illustrationThatChangedAfterParsing_failsTheImport() = runBlocking {
+        val harness = Harness(temporaryFolder.root)
+        harness.txtParser.images = mapOf("images/map.png" to "0".repeat(64))
+        val source = ByteArrayOutputStream().use { bytes ->
+            ZipOutputStream(bytes).use { zip ->
+                zip.putNextEntry(ZipEntry("images/map.png"))
+                zip.write(PNG_BYTES)
+                zip.closeEntry()
+            }
+            bytes.toByteArray()
+        }
+
+        val result = harness.useCase(harness.request(source))
+
+        assertTrue(result is ImportResult.Failure)
+        assertFalse("commit" in harness.events)
+    }
+
+    private fun ByteArray.sha256Hex(): String = MessageDigest.getInstance("SHA-256").digest(this)
+        .joinToString("") { "%02x".format(it) }
+
+    @Test
     fun sameOrOlderMkBookRevision_isADuplicate() = runBlocking {
         val harness = Harness(temporaryFolder.root)
         harness.txtParser.catalogId = "yexing-zhe"
@@ -287,6 +329,7 @@ class ImportBookUseCaseTest {
         var callCount = 0
         var catalogId: String? = null
         var revision: Int? = null
+        var images: Map<String, String> = emptyMap()
 
         override fun parse(source: File, sourceName: String): ParsedBook {
             events += "parse-$label"
@@ -303,6 +346,7 @@ class ImportBookUseCaseTest {
                 ),
                 catalogId = catalogId,
                 revision = revision,
+                images = images,
             )
         }
     }
@@ -390,6 +434,11 @@ class ImportBookUseCaseTest {
             events += "write-cover"
             File(staging.bookDirectory, "cover.png").writeBytes(bytes)
             return "cover.png"
+        }
+
+        override fun writeImage(staging: ImportStaging, path: String, bytes: ByteArray) {
+            events += "write-image-$path"
+            File(staging.bookDirectory, path).apply { parentFile?.mkdirs() }.writeBytes(bytes)
         }
 
         override fun writeMetadata(staging: ImportStaging, metadata: StoredBookMetadata) {

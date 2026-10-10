@@ -1,5 +1,6 @@
 package com.mkread.app.feature.library
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,6 +23,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -30,12 +32,17 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mkread.app.core.model.BookSummary
 import java.text.DateFormat
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.Date
 import kotlin.math.roundToInt
 
@@ -176,6 +183,10 @@ private fun BookCover(book: BookSummary) {
         Color(0xFF48627A),
     )
     val color = palette[(book.id.hashCode() and Int.MAX_VALUE) % palette.size]
+    val context = LocalContext.current
+    val cover by produceState(CoverThumbnails.cached(book), book.id, book.coverPath) {
+        if (value == null) value = withContext(Dispatchers.IO) { CoverThumbnails.load(context.filesDir, book) }
+    }
     Box(
         modifier = Modifier
             .width(48.dp)
@@ -184,6 +195,15 @@ private fun BookCover(book: BookSummary) {
             .drawBehind { drawRect(color) },
         contentAlignment = Alignment.BottomStart,
     ) {
+        cover?.let { bitmap ->
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = null,
+                modifier = Modifier.matchParentSize(),
+                contentScale = ContentScale.Crop,
+            )
+            return@Box
+        }
         Text(
             text = book.title,
             modifier = Modifier.padding(6.dp),

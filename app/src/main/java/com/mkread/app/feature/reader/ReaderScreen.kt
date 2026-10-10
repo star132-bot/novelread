@@ -512,6 +512,26 @@ private fun ReaderPager(
             .testTag("reader-pager"),
     ) { pageIndex ->
         val range = state.pages[pageIndex]
+        val onPageTap: (ReaderPageTap) -> Unit = { zone ->
+            when (zone) {
+                ReaderPageTap.Previous -> onAction(ReaderAction.PreviousPage)
+                ReaderPageTap.Center -> Unit
+                ReaderPageTap.Next -> onAction(ReaderAction.NextPage)
+            }
+        }
+        val illustration = illustrationOnPage(state.text, range)
+        if (illustration != null) {
+            IllustrationPage(
+                bookId = state.book.id,
+                image = illustration,
+                horizontalMarginPx = state.paginationSpec.horizontalMarginPx,
+                onPageTap = onPageTap,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag("reader-page-${range.index}"),
+            )
+            return@HorizontalPager
+        }
         SelectablePageText(
             chapterText = state.text,
             pageRange = range,
@@ -537,13 +557,7 @@ private fun ReaderPager(
                 onAction(ReaderAction.ReadFromOffset(characterOffset))
             },
             onCopied = { onCopied(copiedLabel) },
-            onPageTap = { zone ->
-                when (zone) {
-                    ReaderPageTap.Previous -> onAction(ReaderAction.PreviousPage)
-                    ReaderPageTap.Center -> Unit
-                    ReaderPageTap.Next -> onAction(ReaderAction.NextPage)
-                }
-            },
+            onPageTap = onPageTap,
             modifier = Modifier
                 .fillMaxSize()
                 .testTag("reader-page-${range.index}"),

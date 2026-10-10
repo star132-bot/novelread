@@ -5,6 +5,14 @@ MKread 的标准书籍格式。目标：
 1. **导入零歧义**：章节、卷、标题、正文都是显式声明的，不靠猜测（TXT 要靠正则猜章节，EPUB 要剥 HTML）。
 2. **朗读友好**：正文是干净的纯文本，可附带本书专用的读音表（人名、地名、多音字）。
 3. **可增量更新**：每本书有全局稳定的 `id` 和递增的 `revision`，每章有稳定的 `id` 和 `sha256`。云端更新时只下载变化的章节，阅读进度按章节 `id` 保留。
+4. **图文混排**：封面和插图都打进包里，插图在正文里的位置由作者精确控制（某章开头、结尾或任意两段之间）。
+
+| formatVersion | 内容 | 最低 App 版本 |
+|---|---|---|
+| `1` | 纯文本（可带封面、读音表） | 0.3.0 |
+| `2` | 在 v1 基础上增加插图（§1.4） | 0.4.0 |
+
+打包工具只在书里有插图时写 `2`，没有插图的书仍然是 `1`，老版本 App 照常能导入。
 
 有两种形态：
 
@@ -25,6 +33,7 @@ mimetype                    必须是第一个条目，不压缩（STORED），�
 mkbook.json                 清单（必需）
 cover.jpg | cover.png | cover.webp   封面（可选）
 chapters/<章节id>.txt        每章一个文件（必需）
+images/<文件名>              插图（可选，仅 formatVersion 2）
 pronunciation.json          本书读音表（可选）
 ```
 
@@ -67,7 +76,7 @@ pronunciation.json          本书读音表（可选）
 | 字段 | 必需 | 规则 |
 |---|---|---|
 | `format` | 是 | 固定 `"mkbook"` |
-| `formatVersion` | 是 | 固定 `1`。App 遇到更大的版本号会拒绝导入并提示升级 |
+| `formatVersion` | 是 | `1`，或有插图时为 `2`。App 遇到更大的版本号会拒绝导入并提示升级 |
 | `id` | 是 | 书的全局唯一标识，`^[a-z0-9][a-z0-9._-]{1,63}$`。**发布后不可更改**，云端靠它识别"同一本书的新版本" |
 | `revision` | 是 | 正整数，每次发布新版本 +1 |
 | `updatedAt` | 否 | ISO 8601 UTC 时间 |
@@ -85,6 +94,7 @@ pronunciation.json          本书读音表（可选）
 | `chapters[].path` | 是 | `chapters/<id>.txt` |
 | `chapters[].chars` | 是 | 正文 Unicode 码点数 |
 | `chapters[].sha256` | 是 | 正文文件字节的 SHA-256 |
+| `images` | 否 | 插图清单，仅 formatVersion 2，见 §1.4 |
 | `narration.pronunciation` | 否 | 包内读音表路径 |
 
 ### 1.2 章节正文 `chapters/<id>.txt`
@@ -120,6 +130,41 @@ pronunciation.json          本书读音表（可选）
 - `whole-token`：只在前后不是字母/数字时替换（用于英文缩写）。
 - `replacement` 写成"读起来对"的同音字或空格分开的字母。
 
+### 1.4 插图（formatVersion 2）
+
+图片文件放在 `images/` 下，并在清单里逐个登记：
+
+```json
+"images": [
+  { "path": "images/map.jpg", "size": 482113, "sha256": "…" }
+]
+```
+
+| 规则 | |
+|---|---|
+| 文件名 | `^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\.(jpg|png|webp)$`，路径固定为 `images/<文件名>` |
+| 格式 | JPEG / PNG / WebP，文件内容必须与扩展名一致 |
+| 大小 | 单张 ≤ 10 MB，最多 2000 张；整个包仍然 ≤ 200 MB |
+| 校验 | `size` 和 `sha256` 必须与文件一致；不允许重复登记 |
+
+**插图的位置写在章节正文里**：单独一行写
+
+```text
+![图片说明](images/map.jpg)
+```
+
+- 这一行必须**整行**只有这个标记（`说明` 可以为空，≤ 200 字，不能含 `]` 和换行）。
+- 引用的图片必须在 `images` 清单里；一张图可以被多处引用。
+- 写在章节第一行就是"本章开头"，写在最后一行就是"本章末尾"，也可以写在任意两段之间。
+- App 把每张插图单独排成一页（图片按页面等比缩放，说明显示在图下方）；朗读时跳过插图行。
+- 图片标记行和普通段落一样计入 `chars` 和 `sha256`。
+
+只有 formatVersion 2 才能有 `images`；formatVersion 1 的书里这样的行就是普通文字。
+
+### 1.5 封面
+
+`metadata.cover` 指向包根目录的 `cover.jpg` / `cover.png` / `cover.webp`，App 导入后在书架上显示。封面不需要在 `images` 里登记，也不会出现在正文里。
+
 ---
 
 ## 2. 写作稿 `.mktxt`
@@ -141,6 +186,8 @@ cover: cover.jpg
 
 ## 第1章 夜访 {#c0001}
 
+![林默的小屋](img/house.jpg)
+
 夜色渐深，林默推开那扇吱呀作响的木门。
 屋里只点着一盏油灯。
 
@@ -156,6 +203,7 @@ cover: cover.jpg
 规则：
 
 - 文件开头 `---` 之间是元数据（`键: 值`，每行一个）。`id` 和 `title` 必填；`tags` 用逗号分隔；`cover` 是相对于 `.mktxt` 文件的图片路径。
+- 插图：在章节里单独一行写 `![说明](图片路径)`，路径相对于 `.mktxt` 文件（如 `![地图](img/map.png)`）。打包工具会把图片复制进 `images/`、改写成包内路径，并把 formatVersion 设为 2。同一个文件被多次引用只打包一份。
 - `# 标题`：卷。之后的章节都属于这一卷，直到下一个 `#`。
 - `## 标题`：章。标题末尾可以写 `{#章节id}` 固定章节 id；不写的话打包工具按顺序生成 `c0001`、`c0002`……
   - **已经发布过的书，建议固定 id**，或者打包时用 `--previous 旧版.mkbook`，工具会按标题把旧 id 沿用过来。
@@ -176,6 +224,9 @@ python3 tools/mkbook/mkbook.py build 夜行者.mktxt -o 夜行者.mkbook
 # 发布新版本：沿用旧版章节 id，revision 自动 +1
 python3 tools/mkbook/mkbook.py build 夜行者.mktxt --previous 夜行者.mkbook -o 夜行者-r2.mkbook
 
+# 给 .txt / .epub 指定封面（.mktxt 在元数据里写 cover:）
+python3 tools/mkbook/mkbook.py build 夜行者.txt --id yexing-zhe --cover 封面.jpg -o 夜行者.mkbook
+
 # 检查一个 .mkbook 是否合规
 python3 tools/mkbook/mkbook.py validate 夜行者.mkbook
 
@@ -184,12 +235,15 @@ python3 tools/mkbook/mkbook.py info 夜行者.mkbook
 python3 tools/mkbook/mkbook.py diff 夜行者.mkbook 夜行者-r2.mkbook
 ```
 
-从 `.txt` / `.epub` 构建时需要用 `--id` 指定书的 id（`--title`、`--author` 可选，默认取文件信息）。
+从 `.txt` / `.epub` 构建时需要用 `--id` 指定书的 id（`--title`、`--author`、`--cover` 可选，默认取文件信息）。`--cover` 对 `.mktxt` 也有效，会覆盖元数据里的 `cover`。
+
+从 `.epub` 构建时，正文里的 `<img>` 会按原位置转成插图（与封面相同的图片除外）。
 
 ---
 
 ## 4. App 的处理方式
 
 - 导入时按 `mimetype` 条目识别 `.mkbook`（与扩展名无关），逐项校验清单、路径、哈希和字数，任何一项不符都拒绝导入并提示原因。
+- 封面显示在书架上；插图保存在本书目录的 `images/` 下，阅读时单独成页。
 - 同一 `id` 的书再次导入时：`revision` 更高则原地更新，按章节 `id` 保留阅读进度；`revision` 相同或更低则视为重复。
 - 云端书库下发的就是 `.mkbook`，与本地导入走同一套校验。

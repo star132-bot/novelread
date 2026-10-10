@@ -12,7 +12,7 @@ version_name="${1:?version name, e.g. 0.3.0}"
 version_code="${2:?version code, e.g. 3}"
 notes="${3:-}"
 server="${MKREAD_APP_SERVER:?set MKREAD_APP_SERVER to the app server ssh host}"
-mirror="${MKREAD_GITHUB_MIRROR:-https://ghfast.top/}"
+mirror="${MKREAD_GITHUB_MIRROR:-https://gh-proxy.com/}"
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_root"
 
